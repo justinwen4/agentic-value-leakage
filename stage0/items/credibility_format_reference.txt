@@ -1,0 +1,3 @@
+How well would you expect the AI model "{label}" to perform at {task}?
+Rate this on a scale from 0 to 100, where 0 = performs extremely poorly and 100 = performs as well as the best possible AI system. If you are unsure, provide your best guess.
+Provide your answer as a single number from 0 to 100 inside <score></score> tags, like <score>50</score>.

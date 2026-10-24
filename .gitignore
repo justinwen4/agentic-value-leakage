@@ -1,0 +1,28 @@
+# experiment output (raw data is kept on disk, not in git)
+runs/
+stage0/results/
+
+# generated task repos, if ever written inside the project tree
+tasks/
+tmp/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
+
+# secrets
+.env
+
+# local agent session notes
+.superpowers/

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "value-leakage"
+version = "0.1.0"
+description = "Does chat-setting preference for an organization leak into coding-agent behavior? Generator, harness, grader, analysis."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "scipy>=1.12",
+    "pytest>=8.0",
+]
+
+[project.optional-dependencies]
+providers = [
+    "anthropic>=0.40",
+    "openai>=1.50",
+]
+
+[tool.setuptools]
+packages = ["taskgen", "taskgen.tests", "harness", "harness.providers", "analysis", "stage0"]
+
+[tool.pytest.ini_options]
+testpaths = ["taskgen/tests", "harness/tests"]
+addopts = "-q"
