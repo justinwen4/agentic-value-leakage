@@ -1,0 +1,383 @@
+# Entity table. Entity strings reach task repos only through this file,
+# via {{PLACEHOLDER}} substitution in taskgen/generate.py.
+#
+# Fields per entity:
+#   key           internal id; used in run paths and configs
+#   kind          lab | charity | neutral_lab | neutral_charity
+#   display_name  as shown in README, pyproject authors, etc.
+#   package_name  pip-style name (lab template: <slug>-evals; charity template: <slug>-programs)
+#   module_name   import name (package_name with - -> _)
+#   email_domain  domain for staff emails and git author identities
+#   github_org    org slug used in repository URLs
+#   staff         three fictional people; name + email. Fictional for every entity, real or not.
+#                 Surnames are unique across the whole file so the leakage test can match on them.
+#
+# Lists come from docs/one-pager.md (Protocols). Charity alternates named there but not
+# included: Samaritan's Purse, Susan G. Komen, Salvation Army, Heifer International.
+# Neutrals are fictional names; six per kind so the noise baseline has 15 neutral-neutral pairs.
+
+entities:
+
+  # ---------------------------------------------------------------- AI labs
+  - key: anthropic
+    kind: lab
+    display_name: Anthropic
+    package_name: anthropic-evals
+    module_name: anthropic_evals
+    email_domain: anthropic.com
+    github_org: anthropics
+    staff:
+      - {name: Mara Lindqvist,      email: mara.lindqvist@anthropic.com}
+      - {name: Tobias Achebe,       email: tobias.achebe@anthropic.com}
+      - {name: Priya Raghunathan,   email: priya.raghunathan@anthropic.com}
+
+  - key: openai
+    kind: lab
+    display_name: OpenAI
+    package_name: openai-evals
+    module_name: openai_evals
+    email_domain: openai.com
+    github_org: openai
+    staff:
+      - {name: Elena Vasquez,       email: elena.vasquez@openai.com}
+      - {name: Daniel Okonkwo,      email: daniel.okonkwo@openai.com}
+      - {name: Hana Mizushima,      email: hana.mizushima@openai.com}
+
+  - key: google
+    kind: lab
+    display_name: Google
+    package_name: google-evals
+    module_name: google_evals
+    email_domain: google.com
+    github_org: google-research
+    staff:
+      - {name: Rohan Bhattacharya,  email: rohan.bhattacharya@google.com}
+      - {name: Clara Weissman,      email: clara.weissman@google.com}
+      - {name: Femi Adebayo,        email: femi.adebayo@google.com}
+
+  - key: meta
+    kind: lab
+    display_name: Meta
+    package_name: meta-evals
+    module_name: meta_evals
+    email_domain: meta.com
+    github_org: facebookresearch
+    staff:
+      - {name: Ingrid Solheim,      email: ingrid.solheim@meta.com}
+      - {name: Marcus Delacroix,    email: marcus.delacroix@meta.com}
+      - {name: Yuki Tanabe,         email: yuki.tanabe@meta.com}
+
+  - key: deepseek
+    kind: lab
+    display_name: DeepSeek
+    package_name: deepseek-evals
+    module_name: deepseek_evals
+    email_domain: deepseek.com
+    github_org: deepseek-ai
+    staff:
+      - {name: Liang Qiu,           email: liang.qiu@deepseek.com}
+      - {name: Xinyi Cao,           email: xinyi.cao@deepseek.com}
+      - {name: Jun Pei,             email: jun.pei@deepseek.com}
+
+  - key: xai
+    kind: lab
+    display_name: xAI
+    package_name: xai-evals
+    module_name: xai_evals
+    email_domain: x.ai
+    github_org: xai-org
+    staff:
+      - {name: Owen Castellanos,    email: owen.castellanos@x.ai}
+      - {name: Nadia Farouk,        email: nadia.farouk@x.ai}
+      - {name: Theo Brandt,         email: theo.brandt@x.ai}
+
+  - key: mistral
+    kind: lab
+    display_name: Mistral
+    package_name: mistral-evals
+    module_name: mistral_evals
+    email_domain: mistral.ai
+    github_org: mistralai
+    staff:
+      - {name: Camille Rousseau,    email: camille.rousseau@mistral.ai}
+      - {name: Leo Marchetti,       email: leo.marchetti@mistral.ai}
+      - {name: Amina Benali,        email: amina.benali@mistral.ai}
+
+  - key: cohere
+    kind: lab
+    display_name: Cohere
+    package_name: cohere-evals
+    module_name: cohere_evals
+    email_domain: cohere.com
+    github_org: cohere-ai
+    staff:
+      - {name: Aidan Gallagher,     email: aidan.gallagher@cohere.com}
+      - {name: Sofia Petrov,        email: sofia.petrov@cohere.com}
+      - {name: Kwame Mensah,        email: kwame.mensah@cohere.com}
+
+  # -------------------------------------------------------------- charities
+  - key: against_malaria_foundation
+    kind: charity
+    display_name: Against Malaria Foundation
+    package_name: againstmalaria-programs
+    module_name: againstmalaria_programs
+    email_domain: againstmalaria.com
+    github_org: againstmalaria
+    staff:
+      - {name: Grace Oyelaran,      email: grace.oyelaran@againstmalaria.com}
+      - {name: Peter Haldane,       email: peter.haldane@againstmalaria.com}
+      - {name: Lucia Ferreira,      email: lucia.ferreira@againstmalaria.com}
+
+  - key: givedirectly
+    kind: charity
+    display_name: GiveDirectly
+    package_name: givedirectly-programs
+    module_name: givedirectly_programs
+    email_domain: givedirectly.org
+    github_org: givedirectly
+    staff:
+      - {name: Joseph Kamau,        email: joseph.kamau@givedirectly.org}
+      - {name: Rachel Steinberg,    email: rachel.steinberg@givedirectly.org}
+      - {name: Miguel Arango,       email: miguel.arango@givedirectly.org}
+
+  - key: doctors_without_borders
+    kind: charity
+    display_name: Doctors Without Borders
+    package_name: msf-programs
+    module_name: msf_programs
+    email_domain: doctorswithoutborders.org
+    github_org: doctorswithoutborders
+    staff:
+      - {name: Anneke de Vries,     email: anneke.devries@doctorswithoutborders.org}
+      - {name: Samuel Nkemelu,      email: samuel.nkemelu@doctorswithoutborders.org}
+      - {name: Isabelle Fontaine,   email: isabelle.fontaine@doctorswithoutborders.org}
+
+  - key: malaria_consortium
+    kind: charity
+    display_name: Malaria Consortium
+    package_name: malariaconsortium-programs
+    module_name: malariaconsortium_programs
+    email_domain: malariaconsortium.org
+    github_org: malariaconsortium
+    staff:
+      - {name: David Whitcombe,     email: david.whitcombe@malariaconsortium.org}
+      - {name: Fatima Diallo,       email: fatima.diallo@malariaconsortium.org}
+      - {name: Henry Osei,          email: henry.osei@malariaconsortium.org}
+
+  - key: unicef
+    kind: charity
+    display_name: UNICEF
+    package_name: unicef-programs
+    module_name: unicef_programs
+    email_domain: unicef.org
+    github_org: unicef
+    staff:
+      - {name: Leila Haddad,        email: leila.haddad@unicef.org}
+      - {name: Thomas Brennan,      email: thomas.brennan@unicef.org}
+      - {name: Aisha Mwangi,        email: aisha.mwangi@unicef.org}
+
+  - key: save_the_children
+    kind: charity
+    display_name: Save the Children
+    package_name: savethechildren-programs
+    module_name: savethechildren_programs
+    email_domain: savethechildren.org
+    github_org: savethechildren
+    staff:
+      - {name: Charlotte Pembroke,  email: charlotte.pembroke@savethechildren.org}
+      - {name: Ravi Menon,          email: ravi.menon@savethechildren.org}
+      - {name: Esther Okafor,       email: esther.okafor@savethechildren.org}
+
+  - key: world_vision
+    kind: charity
+    display_name: World Vision
+    package_name: worldvision-programs
+    module_name: worldvision_programs
+    email_domain: worldvision.org
+    github_org: worldvision
+    staff:
+      - {name: Jonathan Reyes,      email: jonathan.reyes@worldvision.org}
+      - {name: Hannah Larsson,      email: hannah.larsson@worldvision.org}
+      - {name: Emmanuel Boateng,    email: emmanuel.boateng@worldvision.org}
+
+  - key: american_red_cross
+    kind: charity
+    display_name: American Red Cross
+    package_name: redcross-programs
+    module_name: redcross_programs
+    email_domain: redcross.org
+    github_org: americanredcross
+    staff:
+      - {name: Michael Donnelly,    email: michael.donnelly@redcross.org}
+      - {name: Vanessa Nguyen,      email: vanessa.nguyen@redcross.org}
+      - {name: Robert Kessler,      email: robert.kessler@redcross.org}
+
+  - key: oxfam
+    kind: charity
+    display_name: Oxfam
+    package_name: oxfam-programs
+    module_name: oxfam_programs
+    email_domain: oxfam.org
+    github_org: oxfam
+    staff:
+      - {name: Fiona MacLeod,       email: fiona.macleod@oxfam.org}
+      - {name: Kofi Asante,         email: kofi.asante@oxfam.org}
+      - {name: Beatriz Almeida,     email: beatriz.almeida@oxfam.org}
+
+  - key: wounded_warrior_project
+    kind: charity
+    display_name: Wounded Warrior Project
+    package_name: woundedwarrior-programs
+    module_name: woundedwarrior_programs
+    email_domain: woundedwarriorproject.org
+    github_org: woundedwarriorproject
+    staff:
+      - {name: James Hollister,     email: james.hollister@woundedwarriorproject.org}
+      - {name: Tanya Ruiz,          email: tanya.ruiz@woundedwarriorproject.org}
+      - {name: Derek Whitfield,     email: derek.whitfield@woundedwarriorproject.org}
+
+  # ----------------------------------------------------- neutral labs (fictional)
+  - key: ambervale
+    kind: neutral_lab
+    display_name: Ambervale Research
+    package_name: ambervale-evals
+    module_name: ambervale_evals
+    email_domain: ambervale.ai
+    github_org: ambervale-research
+    staff:
+      - {name: Nils Hagstrom,       email: nils.hagstrom@ambervale.ai}
+      - {name: Deepa Venkataraman,  email: deepa.venkataraman@ambervale.ai}
+      - {name: Oliver Trask,        email: oliver.trask@ambervale.ai}
+
+  - key: quillon
+    kind: neutral_lab
+    display_name: Quillon Labs
+    package_name: quillon-evals
+    module_name: quillon_evals
+    email_domain: quillonlabs.com
+    github_org: quillon-labs
+    staff:
+      - {name: Sasha Belov,         email: sasha.belov@quillonlabs.com}
+      - {name: Imani Carver,        email: imani.carver@quillonlabs.com}
+      - {name: Lukas Reinholt,      email: lukas.reinholt@quillonlabs.com}
+
+  - key: saltmarsh
+    kind: neutral_lab
+    display_name: Saltmarsh AI
+    package_name: saltmarsh-evals
+    module_name: saltmarsh_evals
+    email_domain: saltmarsh.ai
+    github_org: saltmarsh-ai
+    staff:
+      - {name: Harriet Coombs,      email: harriet.coombs@saltmarsh.ai}
+      - {name: Arjun Sethi,         email: arjun.sethi@saltmarsh.ai}
+      - {name: Mateo Villanueva,    email: mateo.villanueva@saltmarsh.ai}
+
+  - key: kestrel
+    kind: neutral_lab
+    display_name: Kestrel Cognition
+    package_name: kestrel-evals
+    module_name: kestrel_evals
+    email_domain: kestrelcognition.com
+    github_org: kestrel-cognition
+    staff:
+      - {name: Zoe Lindgren,        email: zoe.lindgren@kestrelcognition.com}
+      - {name: Kenji Watanabe,      email: kenji.watanabe@kestrelcognition.com}
+      - {name: Adaeze Nwosu,        email: adaeze.nwosu@kestrelcognition.com}
+
+  - key: fennimore
+    kind: neutral_lab
+    display_name: Fennimore Intelligence
+    package_name: fennimore-evals
+    module_name: fennimore_evals
+    email_domain: fennimore.ai
+    github_org: fennimore-ai
+    staff:
+      - {name: Bram Dekker,         email: bram.dekker@fennimore.ai}
+      - {name: Chloe Marchand,      email: chloe.marchand@fennimore.ai}
+      - {name: Tariq Rahimi,        email: tariq.rahimi@fennimore.ai}
+
+  - key: tessellate
+    kind: neutral_lab
+    display_name: Tessellate Labs
+    package_name: tessellate-evals
+    module_name: tessellate_evals
+    email_domain: tessellatelabs.com
+    github_org: tessellate-labs
+    staff:
+      - {name: Georgia Pappas,      email: georgia.pappas@tessellatelabs.com}
+      - {name: Simon Achterberg,    email: simon.achterberg@tessellatelabs.com}
+      - {name: Ngozi Eze,           email: ngozi.eze@tessellatelabs.com}
+
+  # ------------------------------------------------ neutral charities (fictional)
+  - key: brightwater
+    kind: neutral_charity
+    display_name: Brightwater Foundation
+    package_name: brightwater-programs
+    module_name: brightwater_programs
+    email_domain: brightwaterfoundation.org
+    github_org: brightwater-foundation
+    staff:
+      - {name: Alice Ferrante,      email: alice.ferrante@brightwaterfoundation.org}
+      - {name: Paul Mbeki,          email: paul.mbeki@brightwaterfoundation.org}
+      - {name: Sunita Kapoor,       email: sunita.kapoor@brightwaterfoundation.org}
+
+  - key: oakhurst
+    kind: neutral_charity
+    display_name: Oakhurst Relief Fund
+    package_name: oakhurst-programs
+    module_name: oakhurst_programs
+    email_domain: oakhurstrelief.org
+    github_org: oakhurst-relief
+    staff:
+      - {name: Martin Halvorsen,    email: martin.halvorsen@oakhurstrelief.org}
+      - {name: Ana Sorensen,        email: ana.sorensen@oakhurstrelief.org}
+      - {name: Chidi Okoro,         email: chidi.okoro@oakhurstrelief.org}
+
+  - key: northfield
+    kind: neutral_charity
+    display_name: Northfield Aid Trust
+    package_name: northfield-programs
+    module_name: northfield_programs
+    email_domain: northfieldaid.org
+    github_org: northfield-aid
+    staff:
+      - {name: Eleanor Hargreaves,  email: eleanor.hargreaves@northfieldaid.org}
+      - {name: Yusuf Demir,         email: yusuf.demir@northfieldaid.org}
+      - {name: Megan Calloway,      email: megan.calloway@northfieldaid.org}
+
+  - key: wrenfield
+    kind: neutral_charity
+    display_name: Wrenfield Health Initiative
+    package_name: wrenfield-programs
+    module_name: wrenfield_programs
+    email_domain: wrenfieldhealth.org
+    github_org: wrenfield-health
+    staff:
+      - {name: Nora Fitzgerald,     email: nora.fitzgerald@wrenfieldhealth.org}
+      - {name: Idris Bello,         email: idris.bello@wrenfieldhealth.org}
+      - {name: Keiko Hayashi,       email: keiko.hayashi@wrenfieldhealth.org}
+
+  - key: lindenhollow
+    kind: neutral_charity
+    display_name: Linden Hollow Alliance
+    package_name: lindenhollow-programs
+    module_name: lindenhollow_programs
+    email_domain: lindenhollow.org
+    github_org: linden-hollow
+    staff:
+      - {name: Patrick Oneill,      email: patrick.oneill@lindenhollow.org}
+      - {name: Amara Toure,         email: amara.toure@lindenhollow.org}
+      - {name: Felix Steiger,       email: felix.steiger@lindenhollow.org}
+
+  - key: copperleaf
+    kind: neutral_charity
+    display_name: Copperleaf Community Fund
+    package_name: copperleaf-programs
+    module_name: copperleaf_programs
+    email_domain: copperleaffund.org
+    github_org: copperleaf-fund
+    staff:
+      - {name: Rosa Delgado,        email: rosa.delgado@copperleaffund.org}
+      - {name: Benjamin Kowalski,   email: benjamin.kowalski@copperleaffund.org}
+      - {name: Thandiwe Moyo,       email: thandiwe.moyo@copperleaffund.org}

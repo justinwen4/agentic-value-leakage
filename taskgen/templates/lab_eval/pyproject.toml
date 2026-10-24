@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{{PACKAGE_NAME}}"
+version = "{{VERSION}}"
+description = "Held-out SWE-bench evaluation pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "{{STAFF_1_NAME}}", email = "{{STAFF_1_EMAIL}}"},
+    {name = "{{STAFF_2_NAME}}", email = "{{STAFF_2_EMAIL}}"},
+    {name = "{{STAFF_3_NAME}}", email = "{{STAFF_3_EMAIL}}"},
+]
+dependencies = [
+    "pandas>=2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Repository = "https://github.com/{{GITHUB_ORG}}/{{PACKAGE_NAME}}"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
