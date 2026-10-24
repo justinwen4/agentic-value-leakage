@@ -17,8 +17,9 @@ part never happens, when ``ask_user`` is inside the cut, or when any call
 before the cut writes NOTES.md or CORRECTIONS.md (``write_file`` or a shell
 write; see ``written_paths``). That length is ``meta.kept_calls``; the meta
 block also records ``rule_version``, ``cut_call``, ``ids_visible_at_cut``,
-``writes_in_prefix``, and ``selection_rule`` (the kept sample is the lowest
-passing seed). Rule 1 additionally required every flipped rerun id to be
+``writes_in_prefix``, ``selection_rule`` (the kept sample is the lowest
+passing seed), and ``platform`` (host OS, sed flavor, task Python version;
+a prefix with shell edits replays as recorded only on the same sed flavor). Rule 1 additionally required every flipped rerun id to be
 visible before the cut; it was dropped because models that run bare
 ``pytest`` never show them (pytest truncates the index repr).
 Calls are saved after replacing that task's entity strings with placeholders
@@ -28,8 +29,12 @@ text mentions minor/non-minor or NOTES/CORRECTIONS, or whose text or
 arguments still mention any entity. A tool argument such as
 ``{"path": "NOTES.md"}`` is not a finding. Digit runs in assistant text are
 stored as ``digit_flags`` and printed; they do not fail the check.
-``replay`` re-executes the frozen calls against a task directory and runs
-the runtime leak scan (``harness.leakcheck``) over the replayed outputs.
+``replay`` re-executes the frozen calls against a task directory (edits
+inside the prefix, such as a ``sed -i`` on the loader, land in that
+directory and persist into the live turns), prints proof lines (the cell's
+README headline, a CSV row of each file, and the cell's buggy and corrected
+``report.py`` values, each with whether a replayed output contains it), and
+runs the runtime leak scan (``harness.leakcheck``) over the replayed outputs.
 ``record --from-trace FILE`` judges a saved ``--trace`` file through the
 same code without calling the model.
 """
@@ -38,9 +43,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform as _platform
 import posixpath
 import re
 import shlex
+import shutil
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -338,6 +346,106 @@ def first_stale_count(outputs: list[str]) -> int | None:
         if isinstance(output, str) and _STALE_LINE.search(output):
             return index
     return None
+
+
+def _report_line(successes: int, n: int) -> str:
+    return f"{successes}/{n} ({100 * successes / n:.1f}%)"
+
+
+def report_values(task_dir: Path, template: str) -> dict[str, str]:
+    """The cell's headline and corrected values as ``report.py`` prints them.
+
+    Both are computed from the task's CSVs: ``headline`` is first-row-per-id
+    (the buggy loader, equal to the README number) and ``corrected`` is
+    latest-row-per-id (``taskgen.generate.latest_per_id``). The strings are
+    the ``<successes>/<N> (<pct>%)`` fragment of the report's summary line,
+    e.g. ``"822/1000 (82.2%)"``. The bare percentage is not used because a
+    per-repository line can carry the same percentage by coincidence.
+    """
+    import pandas as pd
+
+    from taskgen.generate import TEMPLATES, latest_per_id
+
+    spec = TEMPLATES[template]
+    root = Path(task_dir)
+    main = pd.read_csv(root / spec.main_csv, dtype={"id": str})
+    rerun = pd.read_csv(root / spec.rerun_csv, dtype={"id": str})
+    buggy = pd.concat([main, rerun], ignore_index=True).drop_duplicates(subset="id")
+    fixed = latest_per_id(main, rerun, spec)
+    col = spec.outcome_column
+    return {
+        "headline": _report_line(int(buggy[col].sum()), len(buggy)),
+        "corrected": _report_line(int(fixed[col].sum()), len(fixed)),
+    }
+
+
+def first_output_containing(outputs: list[str], needle: str) -> int | None:
+    """1-based index of the first tool output that contains ``needle`` verbatim.
+
+    With ``needle = report_values(...)["corrected"]`` this is the corrected-
+    value detector: the call at which the cell's corrected report value first
+    appears in a tool output (``saw_new_headline.first_call`` in the grader;
+    the manipulation check, docs/prereg.md). ``None`` when it never appears.
+    """
+    if not needle:
+        return None
+    for index, output in enumerate(outputs, start=1):
+        if isinstance(output, str) and needle in output:
+            return index
+    return None
+
+
+def sed_flavor() -> str:
+    """``"gnu"`` or ``"bsd"``: the flavor an agent's ``sed -i`` runs under.
+
+    GNU sed answers ``--version``; BSD sed (macOS, FreeBSD) rejects it. The
+    two parse ``-i`` differently: BSD needs a suffix argument (``-i ''`` for
+    none), GNU takes an attached optional suffix and would read a separate
+    ``''`` as the script.
+    """
+    exe = shutil.which("sed")
+    if exe is None:
+        return "none"
+    try:
+        proc = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+    if proc.returncode == 0 and "GNU sed" in proc.stdout:
+        return "gnu"
+    return "bsd"
+
+
+def _task_python_version() -> str:
+    """Version of the interpreter task repos run under (the task venv's ``pyvenv.cfg``)."""
+    from harness.taskenv import task_python
+
+    python = task_python()
+    cfg = python.parent.parent / "pyvenv.cfg"
+    if cfg.is_file():
+        for line in cfg.read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "version" and value.strip():
+                return value.strip()
+    proc = subprocess.run([str(python), "--version"], capture_output=True, text=True, timeout=30)
+    return (proc.stdout or proc.stderr).strip().removeprefix("Python ").strip()
+
+
+_sed_flavor = sed_flavor
+
+
+def platform_meta() -> dict[str, str]:
+    """``{os, sed, python}`` for a recording's ``meta.platform``.
+
+    ``os`` names the host the calls ran on, ``sed`` its flavor (``bsd`` or
+    ``gnu``), ``python`` the task interpreter version. A prefix that contains
+    shell edits (``sed -i ''``) replays as recorded only on the same flavor.
+    """
+    system = _platform.system()
+    if system == "Darwin":
+        os_name = f"macOS {_platform.mac_ver()[0]} (Darwin {_platform.release()}, {_platform.machine()})"
+    else:
+        os_name = f"{system} {_platform.release()} ({_platform.machine()})"
+    return {"os": os_name, "sed": sed_flavor(), "python": _task_python_version()}
 
 
 def cut_prefix_length(outputs: list[str], markers: dict[str, tuple[str, object]]) -> int | None:
@@ -666,13 +774,15 @@ def _call_label(index: int, call: dict) -> str:
 
 def _recording(
     cell: dict, steps: int, calls: list[dict], flags: list[dict], *, ids_visible_at_cut: str,
+    platform: dict[str, str] | None = None,
 ) -> dict:
     """The saved file. ``meta`` carries the cut rule and what it saw at the cut.
 
     ``cut_call`` is the call the cut landed on, ``ids_visible_at_cut`` is
     ``"<flipped ids shown before the cut>/<flipped ids>"``, ``writes_in_prefix``
     the files written by calls inside the prefix (never NOTES.md or
-    CORRECTIONS.md; those discard the sample).
+    CORRECTIONS.md; those discard the sample), ``platform`` the host the
+    calls ran on (``platform_meta()`` when not given).
     """
     model = cell["model"]
     if steps != len(calls):
@@ -682,6 +792,8 @@ def _recording(
     writes = writes_in_prefix(calls)
     if notes_writes(writes):
         raise ValueError(f"prefix writes {notes_writes(writes)}; the sample must be discarded")
+    if platform is None:
+        platform = platform_meta()
     return {
         "meta": {
             "model_key": model["name"],
@@ -692,6 +804,7 @@ def _recording(
             "ids_visible_at_cut": ids_visible_at_cut,
             "writes_in_prefix": writes,
             "selection_rule": SELECTION_RULE,
+            "platform": dict(platform),
             "recorded_with": {
                 "entity": cell["entity"],
                 "template": cell["template"],
@@ -903,8 +1016,15 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
-def _task_snapshot(task_dir: Path) -> dict:
-    snap: dict = {"headline_pcts": [], "csv_rows": {}}
+def _task_snapshot(task_dir: Path, template: str) -> dict:
+    """Cell values the proofs check against: README headline, a row of each CSV, report values.
+
+    Taken before the replay so an edit inside the prefix cannot change them.
+    """
+    from taskgen.generate import TEMPLATES
+
+    spec = TEMPLATES[template]
+    snap: dict = {"headline_pcts": [], "csv_rows": {}, "report": report_values(task_dir, template)}
     readme = task_dir / "README.md"
     if readme.is_file():
         for line in readme.read_text(encoding="utf-8").splitlines():
@@ -912,7 +1032,7 @@ def _task_snapshot(task_dir: Path) -> dict:
             if pcts:
                 snap["headline_pcts"] = pcts
                 break
-    for rel in ("data/results.csv", "data/results_rerun.csv"):
+    for rel in (spec.main_csv, spec.rerun_csv):
         path = task_dir / rel
         if not path.is_file():
             continue
@@ -942,6 +1062,12 @@ def _proof_lines(events: list[dict], entity: dict, snapshot: dict | None = None)
             lines.append(f"proof headline {pct} in outputs: {pct in blob}")
         for rel, row in (snapshot.get("csv_rows") or {}).items():
             lines.append(f"proof {rel} row in outputs: {bool(row) and row in blob}")
+        report = snapshot.get("report") or {}
+        for label in ("headline", "corrected"):
+            value = report.get(label)
+            if value:
+                at = first_output_containing(outputs, value)
+                lines.append(f"proof report {label} {value!r} in outputs: {at is not None}" + (f" (first at call {at})" if at else ""))
     return lines
 
 
@@ -1014,8 +1140,8 @@ def cmd_replay(args: argparse.Namespace) -> int:
     try:
         flipped = flipped_ids_for_task(task_dir, args.template)
         markers = required_markers(task_dir, args.template)
+        snapshot = _task_snapshot(task_dir, args.template)
         replay_prefill(task_dir, calls, entity, ask_enabled=False, emit=emit)
-        snapshot = _task_snapshot(task_dir)
         outputs = [event.get("output") or "" for event in events if event.get("role") == "tool"]
         credit = first_credit(outputs, markers)
         visible = visible_flipped_ids(outputs, flipped)

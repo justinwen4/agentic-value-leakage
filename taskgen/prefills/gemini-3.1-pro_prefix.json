@@ -10,6 +10,11 @@
       "src/{{MODULE_NAME}}/loader.py"
     ],
     "selection_rule": "lowest passing seed",
+    "platform": {
+      "os": "macOS 15.5 (Darwin 24.5.0, arm64)",
+      "sed": "bsd",
+      "python": "3.14.6"
+    },
     "recorded_with": {
       "entity": "ambervale",
       "template": "lab_eval",

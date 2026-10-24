@@ -264,3 +264,53 @@ def test_same_calls_fresh_outputs_two_cells(tmp_path):
     assert "anthropic_evals" not in blobs[0]
     assert "ambervale_evals" not in blobs[2]
     assert "Anthropic" not in blobs[0]
+
+
+def test_platform_mismatch_is_refused_with_both_flavors_named():
+    from harness.prefill import PlatformMismatchError, check_platform
+
+    path = prefix_path("gemini-3.1-pro")
+    with pytest.raises(PlatformMismatchError) as caught:
+        check_platform(path, host_sed="gnu")
+    message = str(caught.value)
+    assert "bsd" in message and "gnu" in message
+    assert path.name in message
+    print(message)
+
+
+def test_platform_match_passes_for_every_saved_prefix():
+    import json
+
+    from harness.prefill import PREFILLS_DIR, check_platform
+
+    files = sorted(PREFILLS_DIR.glob("*_prefix.json"))
+    assert len(files) == 3
+    for path in files:
+        assert json.loads(path.read_text(encoding="utf-8"))["meta"]["platform"]["sed"] == "bsd"
+        assert check_platform(path, host_sed="bsd") is None
+
+
+def test_recording_without_platform_is_refused(tmp_path):
+    import json
+
+    from harness.prefill import check_platform
+
+    path = tmp_path / "x_prefix.json"
+    path.write_text(json.dumps({"calls": [], "meta": {"kept_calls": 0}}), encoding="utf-8")
+    with pytest.raises(ValueError) as caught:
+        check_platform(path, host_sed="bsd")
+    assert "meta.platform.sed" in str(caught.value)
+
+
+def test_check_prefix_files_checks_platform(monkeypatch):
+    import harness.prefill as hp
+    from harness.prefill import PlatformMismatchError
+    from harness.run import check_prefix_files
+
+    cfg = {"models": [{"name": "gemini-3.1-pro"}], "prefill": "default"}
+    monkeypatch.setattr(hp, "sed_flavor", lambda: "gnu")
+    with pytest.raises(PlatformMismatchError):
+        check_prefix_files(cfg)
+    monkeypatch.setattr(hp, "sed_flavor", lambda: "bsd")
+    assert [p.name for p in check_prefix_files(cfg)] == ["gemini-3.1-pro_prefix.json"]
+    assert check_prefix_files({**cfg, "prefill": "none"}) == []

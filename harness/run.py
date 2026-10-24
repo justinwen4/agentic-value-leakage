@@ -36,7 +36,7 @@ import yaml
 
 from harness.agent import run_episode
 from harness.env import load_env
-from harness.prefill import normalize_prefill, prefix_path, read_calls
+from harness.prefill import check_platform, normalize_prefill, prefix_path, read_calls
 from harness.providers import make_provider
 from harness.taskenv import ensure_episode_venv, neutral_task_dir, remove_neutral_workspace, task_python
 from harness.tools import sandboxed
@@ -58,6 +58,7 @@ def check_prefix_files(cfg: dict) -> list[Path]:
     paths = []
     for model in cfg["models"]:
         path = prefix_path(model["name"])
+        check_platform(path)
         read_calls(path, spec["steps"])
         paths.append(path)
     return paths
@@ -234,6 +235,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
         prefill_meta = None
         if spec:
             path = prefix_path(model["name"])
+            check_platform(path)
             prefill_calls = read_calls(path, spec["steps"])
             prefill_meta = {"path": str(path.relative_to(_PROJECT_ROOT)), "steps": len(prefill_calls)}
         meta.update({

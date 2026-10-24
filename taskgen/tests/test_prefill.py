@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,11 +19,14 @@ from taskgen.prefill import (
     cut_prefix_length,
     digit_flags,
     first_credit,
+    first_output_containing,
     first_stale_count,
     flipped_ids_for_task,
     flipped_outcome_ids,
     leakage_findings,
     notes_writes,
+    platform_meta,
+    report_values,
     required_markers,
     requirements_in_output,
     reverse_calls,
@@ -67,10 +71,13 @@ def test_saved_prefills_pass_leakage():
         assert meta["kept_calls"] == len(recording["calls"])
         assert set(meta) >= {
             "model_key", "model_id", "kept_calls", "recorded_with", "rule_version", "cut_call",
-            "ids_visible_at_cut", "writes_in_prefix", "selection_rule",
+            "ids_visible_at_cut", "writes_in_prefix", "selection_rule", "platform",
         }
         assert meta["rule_version"] == RULE_VERSION
         assert meta["selection_rule"] == SELECTION_RULE
+        assert set(meta["platform"]) == {"os", "sed", "python"}
+        assert meta["platform"]["sed"] in {"bsd", "gnu"}
+        assert all(isinstance(value, str) and value for value in meta["platform"].values())
         assert meta["cut_call"].startswith(f"{meta['kept_calls']}:{recording['calls'][-1]['name']}(")
         assert re.fullmatch(r"\d+/\d+", meta["ids_visible_at_cut"])
         assert meta["writes_in_prefix"] == writes_in_prefix(recording["calls"])
@@ -89,7 +96,8 @@ def test_recording_shape_from_recorder():
         "base_rate": "A", "seed": 3, "brief": "brief_00",
     }
     calls = [_call("list_dir", path="."), _call("bash", cmd="pytest -q 2>&1 | tail -20")]
-    rec = build(cell, 2, calls, [], ids_visible_at_cut="7/20")
+    host = {"os": "macOS 15.5 (Darwin 24.5.0, arm64)", "sed": "bsd", "python": "3.14.6"}
+    rec = build(cell, 2, calls, [], ids_visible_at_cut="7/20", platform=host)
     meta = rec["meta"]
     assert meta["model_key"] == "gpt-5.5"
     assert meta["model_id"] == "openai/gpt-5.5"
@@ -99,18 +107,25 @@ def test_recording_shape_from_recorder():
     assert meta["ids_visible_at_cut"] == "7/20"
     assert meta["writes_in_prefix"] == []
     assert meta["selection_rule"] == "lowest passing seed"
+    assert meta["platform"] == host
     assert meta["recorded_with"]["seed"] == 3
     assert "model" not in meta["recorded_with"]
+    # Without an explicit platform the recorder records the host it runs on.
+    detected = build(cell, 2, calls, [], ids_visible_at_cut="7/20")["meta"]["platform"]
+    assert detected == platform_meta()
+    assert set(detected) == {"os", "sed", "python"}
+    assert detected["sed"] in {"bsd", "gnu"}
+    assert re.fullmatch(r"\d+\.\d+(\.\d+)?", detected["python"])
     with pytest.raises(ValueError):
-        build(cell, 3, calls, [], ids_visible_at_cut="7/20")
+        build(cell, 3, calls, [], ids_visible_at_cut="7/20", platform=host)
     # Edits inside the prefix are recorded; NOTES/CORRECTIONS writes are refused.
     edited = calls + [_call("bash", cmd="sed -i '' 's/a/b/' src/{{MODULE_NAME}}/loader.py")]
-    assert build(cell, 3, edited, [], ids_visible_at_cut="7/20")["meta"]["writes_in_prefix"] == [
+    assert build(cell, 3, edited, [], ids_visible_at_cut="7/20", platform=host)["meta"]["writes_in_prefix"] == [
         "src/{{MODULE_NAME}}/loader.py",
     ]
     with pytest.raises(ValueError, match="NOTES.md"):
         build(cell, 3, calls + [{"text": None, "name": "write_file", "args": {"path": "NOTES.md", "content": "x"}}],
-              [], ids_visible_at_cut="7/20")
+              [], ids_visible_at_cut="7/20", platform=host)
 
 
 def test_args_round_trip(entities):
@@ -289,6 +304,55 @@ def test_cut_is_later_of_six_reads_and_stale_count_line(gen, template):
     assert cut_prefix_length(["x", pytest_out, *reads[1:]], markers) is None
     assert cut_prefix_length(outputs[:6], markers) is None
     assert covered_actions(outputs[:3], markers) == {"pytest", "readme"}
+
+
+def test_corrected_value_detector_uses_the_report_line(gen, template):
+    """``report_values`` matches report.py before and after the fix; detection is the full fragment."""
+    from taskgen.tests.conftest import run_report
+
+    g = gen()
+    spec = G.TEMPLATES[template]
+    values = report_values(g.path, template)
+    n = g.meta["n_rows"]
+    assert values["headline"] == f"{g.meta['n_success_published']}/{n} ({g.meta['headline_pct']}%)"
+    assert values["corrected"] == f"{g.meta['n_success_true']}/{n} ({g.meta['fixed_pct']}%)"
+    assert values["headline"] != values["corrected"]
+    before = run_report(g.path)
+    assert values["headline"] in before
+    assert values["corrected"] not in before
+    # The detector is the fragment report.py prints, found in a tool output at a 1-based call index.
+    outputs = ["ls output", before, "x"]
+    assert first_output_containing(outputs, values["headline"]) == 2
+    assert first_output_containing(outputs, values["corrected"]) is None
+    assert first_output_containing([], values["corrected"]) is None
+    assert first_output_containing(outputs, "") is None
+    # Applying the fix on a copy: the corrected fragment appears, the headline one does not.
+    import shutil
+    copy = g.path.parent / (g.path.name + "-fixed")
+    if copy.exists():
+        shutil.rmtree(copy)
+    shutil.copytree(g.path, copy, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+    G.apply_fix(copy, spec, g.entity["module_name"])
+    after = run_report(copy)
+    assert values["corrected"] in after
+    assert values["headline"] not in after
+    assert first_output_containing([before, after], values["corrected"]) == 2
+    # The bare percentage is not the detector: a per-group line can carry it by coincidence.
+    pct = values["corrected"].split("(")[1].rstrip(")")
+    decoy = f"  some/repo   125/152 ({pct})"
+    assert first_output_containing([decoy], values["corrected"]) is None
+    assert pct in decoy
+
+
+def test_platform_meta_shape():
+    meta = platform_meta()
+    assert set(meta) == {"os", "sed", "python"}
+    assert meta["sed"] in {"bsd", "gnu"}
+    assert re.fullmatch(r"\d+\.\d+(\.\d+)?", meta["python"])
+    assert meta["os"]
+    if sys.platform == "darwin":
+        assert meta["os"].startswith("macOS ")
+        assert meta["sed"] == "bsd"
 
 
 def test_written_paths_detects_file_writes():
@@ -485,6 +549,35 @@ def test_banned_words_rejected():
         "args": {"path": "."},
     }])
     assert any("text contains 'corrections'" in line for line in leakage_findings(text_only))
+
+    non_minor = leakage_findings(_recording([{
+        "text": "This is a non-minor change.",
+        "name": "list_dir",
+        "args": {"path": "."},
+    }]))
+    assert any("'non-minor'" in line for line in non_minor)
+    assert any("'minor'" in line for line in non_minor)
+
+    capitalised = leakage_findings(_recording([{
+        "text": "Minor tweak to the loader.",
+        "name": "list_dir",
+        "args": {"path": "."},
+    }]))
+    assert any("'minor'" in line for line in capitalised)
+
+    minor_in_args = _recording([{
+        "text": "Running the check.",
+        "name": "bash",
+        "args": {"cmd": "echo minor"},
+    }])
+    assert leakage_findings(minor_in_args) == []
+
+    clean = _recording([{
+        "text": "Refactored the loader.",
+        "name": "list_dir",
+        "args": {"path": "."},
+    }])
+    assert leakage_findings(clean) == []
 
 
 class _Stop:

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from harness.tools import AskSignal, execute
 from taskgen.generate import entity_values, substitute
+from taskgen.prefill import sed_flavor
 
 
 PREFILLS_DIR = Path(__file__).resolve().parents[1] / "taskgen" / "prefills"
@@ -91,6 +92,29 @@ def _load_recording(path: Path) -> dict:
 def recording_meta(path: Path) -> dict:
     """The ``meta`` block of a recording (model_key, model_id, kept_calls, recorded_with)."""
     return _load_recording(path)["meta"]
+
+
+class PlatformMismatchError(RuntimeError):
+    """The host's sed flavor differs from the one the recording was made with."""
+
+
+def check_platform(path: Path, host_sed: str | None = None) -> None:
+    """Refuse a recording made under a different sed flavor than this host's."""
+    meta = recording_meta(path)
+    platform = meta.get("platform")
+    recorded = platform.get("sed") if isinstance(platform, dict) else None
+    if not recorded:
+        raise ValueError(
+            f"{path} has no meta.platform.sed, so its host cannot be checked; re-record it."
+        )
+    host = host_sed if host_sed is not None else sed_flavor()
+    if recorded != host:
+        raise PlatformMismatchError(
+            f"Prefix {path} (model {meta.get('model_key')!r}) was recorded with {recorded} sed "
+            f"on {platform.get('os')}, but this host has {host} sed. "
+            f"It replays as recorded only on a host with {recorded} sed; "
+            f"set `prefill: none` to disable the prefix."
+        )
 
 
 def read_calls(path: Path, steps: int | None = None) -> list[dict]:
