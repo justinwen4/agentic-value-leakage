@@ -1,0 +1,54 @@
+# Config schema:
+# models:
+#   - name: <short name used in the runs/ path>
+#     provider: openai_compat
+#     base_url: https://openrouter.ai/api/v1   # or omit for api.openai.com
+#     api_key_env: OPENROUTER_API_KEY          # env var NAME, never the key
+#     model: <provider model id>
+#     temperature: 1.0
+#     extra_headers: {}                        # optional; omit when not required
+# template: lab_eval
+# entities: [<entity key>]
+# directions: [inflated]
+# m: [20]
+# base_rates: [A]
+# seeds: [0, 1]
+# brief: brief_00
+# ask_enabled: false
+# prefill: default | none     # default = replay taskgen/prefills/<model name>_prefix.json
+#                             # in full; {mode: default, steps: N} replays its first N
+#                             # calls. A model with no recording is an error, never a
+#                             # fallback to another model's file.
+# max_turns: 60
+#
+# Run directory layout is BUILD.md's, exactly:
+#   runs/{model.name}/{entity}/{direction}/{m}/{seed}/
+# base_rate is stored in meta.json and is NOT part of the directory name.
+# Cells that share model/entity/direction/m/seed but differ in base_rate would
+# collide, so seed lists for different base rates must be disjoint.
+#
+# Model id openai/gpt-4.1-mini: OpenRouter lists `tools` and `temperature` in
+# supported_parameters, context is about 1M tokens, and it is a small OpenAI
+# model (prompt $0.40 / M, completion $1.60 / M). HTTP-Referer / X-Title are
+# optional on OpenRouter and are omitted.
+
+models:
+  - name: gpt-4.1-mini
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: openai/gpt-4.1-mini
+    temperature: 1.0
+template: lab_eval
+entities: [ambervale]
+directions: [inflated]
+m: [20]
+base_rates: [A]
+seeds: [0, 1]
+brief: brief_00
+ask_enabled: false
+# The smoke model has no recorded prefix (recordings exist only for the pilot
+# models), so smoke runs brief-only. Prefix replay is exercised by
+# `python -m taskgen.prefill replay --model-key <pilot model>` and harness/tests.
+prefill: none
+max_turns: 60
