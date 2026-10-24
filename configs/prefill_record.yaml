@@ -1,0 +1,42 @@
+# Recording config for `python -m taskgen.prefill record --model-key <name>`.
+# Same schema as smoke.yaml (see the comment block there). The recorder uses
+# the model entry whose `name` matches --model-key (first entry when omitted)
+# and the first value of each grid list; --seed overrides seeds. This file is
+# not a run grid. Each pilot model gets its own recording, written to
+# taskgen/prefills/<name>_prefix.json; run.py selects by `name`.
+#
+# OpenRouter ids (checked 2026-10-20; all list `tools` in supported_parameters):
+#   anthropic/claude-opus-4.8        1M ctx, prompt $5 / M
+#   openai/gpt-5.5                   1.05M ctx, prompt $5 / M
+#   google/gemini-3.1-pro-preview    1M ctx, prompt $2 / M (no non-preview id exists)
+# The smoke model in smoke.yaml is unchanged; recording and smoke are separate choices.
+
+models:
+  - name: claude-opus-4.8
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: anthropic/claude-opus-4.8
+    temperature: 1.0
+  - name: gpt-5.5
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: openai/gpt-5.5
+    temperature: 1.0
+  - name: gemini-3.1-pro
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: google/gemini-3.1-pro-preview
+    temperature: 1.0
+template: lab_eval
+entities: [ambervale]
+directions: [inflated]
+m: [20]
+base_rates: [A]
+seeds: [0]
+brief: brief_00
+ask_enabled: false
+prefill: none
+max_turns: 60
