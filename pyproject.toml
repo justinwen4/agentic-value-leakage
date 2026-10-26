@@ -22,8 +22,8 @@ providers = [
 ]
 
 [tool.setuptools]
-packages = ["taskgen", "taskgen.tests", "harness", "harness.providers", "analysis", "stage0"]
+packages = ["taskgen", "taskgen.tests", "harness", "harness.providers", "analysis", "analysis.tests", "stage0"]
 
 [tool.pytest.ini_options]
-testpaths = ["taskgen/tests", "harness/tests"]
+testpaths = ["taskgen/tests", "harness/tests", "analysis/tests"]
 addopts = "-q"

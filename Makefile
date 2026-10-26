@@ -3,7 +3,7 @@ PY ?= .venv/bin/python
 .PHONY: test smoke grade stage0 midpoint pilot curves
 
 test:
-	$(PY) -m pytest taskgen/tests harness/tests stage0/tests
+	$(PY) -m pytest taskgen/tests harness/tests stage0/tests analysis/tests
 
 smoke:
 	$(PY) -m harness.run --config configs/smoke.yaml
