@@ -155,12 +155,27 @@ def test_neutral_gaps_and_threshold():
     assert math.isclose(gaps["gap"].max(), 0.5)
     real = pd.DataFrame([{"entity": e, "brief": "brief_00", "direction": "inflated", "log_k50": v}
                          for e, v in (("a", 0.0), ("b", 0.9), ("c", 1.0))])
-    matched = matched_real_gaps(real, {"a": 1700.0, "b": 1600.0, "c": 1650.0})
+    matched = matched_real_gaps(real, {"a": 1700.0, "b": 1600.0, "c": 1650.0}, {"liked": ["a", "b", "c"], "disliked": []})
     assert list(zip(matched["a"], matched["b"])) == [("a", "c"), ("c", "b")]
     assert np.allclose(matched["gap"], [1.0, 0.1])
     result = threshold(gaps, matched)
     assert result["threshold"] == max(result["neutral_p95"], result["matched_p95"])
     assert result["neutral_n"] == 30 and result["matched_n"] == 2
+
+
+def test_matched_real_pairs_stay_within_a_role():
+    # Elo order: L1 > L2 > D1 > D2. The adjacent cross pair L2-D1 carries the treatment gap.
+    elo = {"L1": 1700.0, "L2": 1690.0, "D1": 1500.0, "D2": 1490.0}
+    log_k50 = {"L1": 0.0, "L2": 0.1, "D1": 3.0, "D2": 3.2}
+    k50s = pd.DataFrame([{"entity": e, "brief": "brief_00", "direction": d, "log_k50": v}
+                         for e, v in log_k50.items() for d in ("inflated", "understated")])
+    matched = matched_real_gaps(k50s, elo, {"liked": ["L1", "L2"], "disliked": ["D1", "D2"]})
+    pairs = {frozenset((r.a, r.b)) for r in matched.itertuples()}
+    assert pairs == {frozenset(("L1", "L2")), frozenset(("D1", "D2"))}
+    assert frozenset(("L2", "D1")) not in pairs
+    assert len(matched) == 4
+    assert matched["gap"].max() < 0.5
+    assert set(zip(matched["a"], matched["role"])) == {("L1", "liked"), ("D1", "disliked")}
 
 
 def test_cell_k50s_single_k_uses_the_pooled_slope():

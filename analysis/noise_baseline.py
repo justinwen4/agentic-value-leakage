@@ -1,7 +1,8 @@
 """Noise baselines for the liked-minus-disliked k50 gap.
 
     python -m analysis.noise_baseline --runs runs --model gpt-5.5 \
-        --neutrals ambervale,quillon,... [--elo elo.csv] [--population primary]
+        --neutrals ambervale,quillon,... [--elo elo.csv --roles roles.yaml [--line primary]] \
+        [--population primary]
 
 Two distributions of absolute log-k50 gaps, per model (docs/prereg.md,
 Noise rule):
@@ -9,7 +10,12 @@ Noise rule):
 - **Neutral-neutral.** Every pair of neutral entities within the same
   paraphrase and direction (6 neutrals: 15 pairs per paraphrase).
 - **Matched real pairs.** Real entities adjacent in that model's Stage 0 Elo
-  ranking, per direction and paraphrase, among the entities with a k50.
+  ranking, per direction and paraphrase, among the entities with a k50,
+  ranked separately inside the liked pool and inside the disliked pool. A
+  liked entity is never paired with a disliked one: that pair is the
+  treatment contrast, not noise. ``--roles`` is the ``fit_curves`` YAML
+  (``{model: {line: {liked: [...], disliked: [...]}}}``) and ``--line``
+  picks the line.
 
 Each gives a 95th percentile; the decision threshold is the larger of the
 two. ``--elo`` is a CSV with columns ``model,entity,elo``.
@@ -33,6 +39,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from analysis.fit_curves import fit_logistic, load_runs, population
 
@@ -70,16 +77,22 @@ def neutral_gaps(k50s: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["brief", "direction", "a", "b", "gap"])
 
 
-def matched_real_gaps(k50s: pd.DataFrame, elo: dict[str, float]) -> pd.DataFrame:
-    """|gap| between entities adjacent in Elo, among those with a k50, per paraphrase and direction."""
+def matched_real_gaps(k50s: pd.DataFrame, elo: dict[str, float], roles: dict) -> pd.DataFrame:
+    """|gap| between entities adjacent in Elo within one role, per paraphrase and direction.
+
+    ``roles`` is one line of the ``--roles`` YAML, ``{liked: [...], disliked: [...]}``.
+    Pairs are formed inside each role and never across.
+    """
     rows = []
     for (brief, direction), frame in k50s.groupby(["brief", "direction"], sort=True):
-        ranked = sorted((e for e in frame["entity"] if e in elo), key=lambda e: (-elo[e], e))
         values = dict(zip(frame["entity"], frame["log_k50"]))
-        for a, b in zip(ranked, ranked[1:]):
-            rows.append({"brief": brief, "direction": direction, "a": a, "b": b,
-                         "elo_a": elo[a], "elo_b": elo[b], "gap": abs(values[a] - values[b])})
-    return pd.DataFrame(rows, columns=["brief", "direction", "a", "b", "elo_a", "elo_b", "gap"])
+        for role in ("liked", "disliked"):
+            members = set(roles.get(role) or ())
+            ranked = sorted((e for e in values if e in members and e in elo), key=lambda e: (-elo[e], e))
+            for a, b in zip(ranked, ranked[1:]):
+                rows.append({"brief": brief, "direction": direction, "role": role, "a": a, "b": b,
+                             "elo_a": elo[a], "elo_b": elo[b], "gap": abs(values[a] - values[b])})
+    return pd.DataFrame(rows, columns=["brief", "direction", "role", "a", "b", "elo_a", "elo_b", "gap"])
 
 
 def threshold(neutral: pd.DataFrame, matched: pd.DataFrame | None, q: float = 95.0) -> dict:
@@ -111,8 +124,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--neutrals", required=True, help="comma-separated neutral entity keys")
     parser.add_argument("--elo", type=Path, help="CSV model,entity,elo for the matched-real-pairs baseline")
+    parser.add_argument("--roles", type=Path, help="YAML {model: {line: {liked: [...], disliked: [...]}}}; required with --elo")
+    parser.add_argument("--line", default="primary", help="line of --roles naming the liked and disliked pools")
     parser.add_argument("--population", choices=("primary", "all"), default="primary")
     args = parser.parse_args(argv)
+    if args.elo and not args.roles:
+        parser.error("--elo needs --roles: matched-real pairs are formed within the liked and disliked pools")
 
     runs = load_runs(args.runs)
     if runs.empty:
@@ -128,8 +145,9 @@ def main(argv: list[str] | None = None) -> int:
         table = pd.read_csv(args.elo)
         table = table[table["model"] == args.model]
         elo = dict(zip(table["entity"], table["elo"].astype(float)))
+        roles = yaml.safe_load(args.roles.read_text(encoding="utf-8"))[args.model][args.line]
         real = k50s[~k50s["entity"].isin(neutrals)]
-        matched = matched_real_gaps(real, elo)
+        matched = matched_real_gaps(real, elo, roles)
     with pd.option_context("display.width", 200):
         print(k50s.to_string(index=False))
         print(neutral.to_string(index=False))
