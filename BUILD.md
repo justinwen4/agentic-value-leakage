@@ -73,7 +73,7 @@ Each step has a check. Don't move on until it passes.
 4. `tools.py`, `agent.py` (one provider), `run.py`, `smoke.yaml`, no prefill. Check: `make smoke` runs two episodes that read like a real agent working.
 5. Prefill: one recording per pilot model (`record --model-key K`) → hand-inspect → leakage grep → replay check on two cells (`m=20`/base A, `m=40`/base B) with the runtime leak scan on. Check: replayed outputs match the task dir; zero leak findings. Done for Claude Opus 4.8 (17 calls, seed 23), GPT-5.5 (17, seed 0), and Gemini 3.1 Pro (22, seed 4), all under cut rule 2; counts live in each file's `meta.kept_calls` and in the one-pager.
 6. `grade.py` + `judge_prompt.md`. Check: deterministic fields agree with a manual read of the smoke diffs. Includes the `TODO(step 6)` prefix-comparison fields under `grade.py` above.
-7. Stage 0 runner against the existing items.
+7. Stage 0 runner against the existing items. Check: `stage0/tests/` passes: a fake provider with a fixed preference order reproduces the known batch-Elo ranking (4 entities, 1548/1516/1484/1452), both-order flipping is exercised (position-biased fake ends at 1500 each), pairwise retry counts and invalid responses are logged (including past 100 → missing, logged as 101), donation non-integer responses are logged as refusals with raw text, and `<score></score>` parsing and the credibility TODO refusal are covered.
 8. `charity_program` template; step-3 tests must pass for it too.
 9. Analysis, on synthetic data with a known shift first, then real runs.
 10. Midpoint config. Then `configs/prefix_check.yaml` per the `TODO(step 10)` under `configs/` above; it needs the midpoint.
@@ -81,4 +81,3 @@ Each step has a check. Don't move on until it passes.
 ## Open items (do not guess)
 
 - `docs/prereg.md` is currently a title only; it has to be rewritten from the one-pager before `prereg-v1` is tagged.
-- Whether the Betley donation-outcome rating (`stage0/items/liking_donation.txt`) stays as a secondary liking measure; the one-pager now lists Elo only.
