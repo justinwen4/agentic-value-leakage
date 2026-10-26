@@ -9,6 +9,11 @@ that differ only in ``base_rate`` would write the same directory, so seed lists
 for different base rates must be disjoint. This module refuses a grid that
 collides.
 
+After each episode the runtime leak scan (``harness.leakcheck``) runs over
+every tool output, replayed prefix included; ``meta.json`` records
+``leaked`` and ``leak_findings``, and ``harness.grade`` copies ``leaked``
+into ``grade.json`` so analysis can drop the cell.
+
 Resume skips a cell when ``grade.json`` exists, and also when
 ``final_message.txt`` exists, unless ``--force``. ``grade.json`` is written by
 a later step; the final-message check is what makes this step resume-safe.
@@ -36,6 +41,7 @@ import yaml
 
 from harness.agent import run_episode
 from harness.env import load_env
+from harness.leakcheck import scan_trajectory
 from harness.prefill import check_platform, normalize_prefill, prefix_path, read_calls
 from harness.providers import make_provider
 from harness.taskenv import ensure_episode_venv, neutral_task_dir, remove_neutral_workspace, task_python
@@ -142,10 +148,15 @@ def _capture_diff(task_dir: Path) -> str:
     not the agent's work, and is left out even in repositories whose
     ``.gitignore`` does not list it.
     """
-    _git(task_dir, "add", "-A", "--", ".", ":(exclude).venv")
+    _git(task_dir, "add", "-A")
+    _git(task_dir, "rm", "-r", "-q", "--cached", "--ignore-unmatch", ".venv")
     proc = _git(task_dir, "-c", "color.ui=never", "diff", "--cached", "--binary", "HEAD")
     _git(task_dir, "reset", "-q")
     return proc.stdout
+
+
+def _read_events(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _cells(cfg: dict) -> list[dict]:
@@ -266,6 +277,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
         )
         logger.close()
         logger = None
+        findings = scan_trajectory(_read_events(run_dir / "trajectory.jsonl"), cell["entity"])
 
         diff = _capture_diff(task_dir)
         (run_dir / "diff.patch").write_text(diff, encoding="utf-8")
@@ -273,13 +285,16 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             "finished": _now(),
             "stopped_reason": result.stopped_reason,
             "n_turns": result.n_turns,
+            "leaked": bool(findings),
+            "leak_findings": findings,
         })
         _write_meta(run_dir / "meta.json", meta)
         text = result.final_message
         if text and not text.endswith("\n"):
             text += "\n"
         (run_dir / "final_message.txt").write_text(text, encoding="utf-8")
-        return f"done {label} stopped={result.stopped_reason} turns={result.n_turns}"
+        leak = f" LEAKED ({len(findings)} findings)" if findings else ""
+        return f"done {label} stopped={result.stopped_reason} turns={result.n_turns}{leak}"
     except Exception as exc:
         detail = _redact(traceback.format_exc())
         print(detail, file=sys.stderr, flush=True)

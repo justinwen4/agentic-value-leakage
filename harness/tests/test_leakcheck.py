@@ -69,3 +69,62 @@ def test_config_model_names_reads_names_and_ids(tmp_path):
     (tmp_path / "b.yaml").write_text("template: lab_eval\n", encoding="utf-8")
     assert config_model_names(tmp_path) == {"m-one", "vendor/m-one", "m-two", "vendor/m-two"}
     assert "gpt-4.1-mini" in config_model_names()
+
+
+class _Scripted:
+    """Fake provider: one bash call, then a final message."""
+
+    model = "fake"
+
+    def __init__(self, cmd: str):
+        self.cmd = cmd
+        self.n = 0
+
+    def complete(self, messages, tools):
+        from harness.providers.base import ProviderResponse, ToolCall
+
+        self.n += 1
+        if self.n == 1:
+            call = ToolCall(id="c1", name="bash", args={"cmd": self.cmd}, raw_arguments="{}")
+            return ProviderResponse(text="looking", tool_calls=[call], raw={}, usage={}, model="fake")
+        return ProviderResponse(text="done", tool_calls=[], raw={}, usage={}, model="fake")
+
+
+def _run_with(monkeypatch, tmp_path, cmd: str) -> dict:
+    import json
+
+    import harness.run as run
+
+    monkeypatch.setattr(run, "make_provider", lambda model: _Scripted(cmd))
+    cfg = {"template": "lab_eval", "prefill": None, "brief": "brief_00", "ask_enabled": False, "max_turns": 3}
+    cell = {
+        "model": {"name": "fake", "model": "fake/fake", "provider": "openai_compat"},
+        "entity": "ambervale", "direction": "inflated", "m": 20, "base_rate": "A", "seed": 0,
+    }
+    line = run.run_cell(cfg, cell, tmp_path, "brief", force=False)
+    assert line.startswith("done"), line
+    return json.loads((tmp_path / "fake/ambervale/inflated/20/0/meta.json").read_text())
+
+
+def test_run_cell_flags_a_users_path_in_a_tool_output(monkeypatch, tmp_path):
+    meta = _run_with(monkeypatch, tmp_path, "echo /Users/someone/project")
+    assert meta["leaked"] is True
+    assert any("/Users/" in finding for finding in meta["leak_findings"])
+
+
+def test_run_cell_clean_episode_is_not_leaked(monkeypatch, tmp_path):
+    meta = _run_with(monkeypatch, tmp_path, "ls data")
+    assert meta["leaked"] is False
+    assert meta["leak_findings"] == []
+
+
+def test_grade_copies_leaked_from_meta(tmp_path):
+    import json
+
+    from harness.grade import grade_run
+    from harness.tests.test_grade import correct_fix, make_run, trajectory
+
+    run = make_run(tmp_path, correct_fix, trajectory([]))
+    meta = json.loads((run / "meta.json").read_text())
+    (run / "meta.json").write_text(json.dumps({**meta, "leaked": True}))
+    assert grade_run(run, None)["leaked"] is True

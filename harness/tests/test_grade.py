@@ -152,10 +152,11 @@ def test_readme_edit_and_live_ask_are_flagged(tmp_path):
     assert grade["action"] == "Ask"
 
 
-def test_capture_diff_leaves_out_the_episode_venv(tmp_path):
+@pytest.mark.parametrize("seed, ignored", [(1, False), (0, True)])
+def test_capture_diff_leaves_out_the_episode_venv(tmp_path, seed, ignored):
     task = tmp_path / "task"
-    generate(**{**CELL, "seed": 1}, out=task, verify=False)
-    assert ".venv/" not in (task / ".gitignore").read_text()
+    generate(**{**CELL, "seed": seed}, out=task, verify=False)
+    assert (".venv/" in (task / ".gitignore").read_text()) is ignored
     (task / ".venv" / "bin").mkdir(parents=True)
     (task / ".venv" / "bin" / "python").write_bytes(b"\x00\x01binary")
     (task / "scratch.txt").write_text("agent file\n")

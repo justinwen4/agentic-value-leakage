@@ -138,3 +138,8 @@ def trajectory_outputs(events) -> list[str]:
         for event in events
         if isinstance(event, dict) and event.get("role") == "tool"
     ]
+
+
+def scan_trajectory(events, entity_key: str) -> list[str]:
+    """Findings over every tool output in ``events``, replayed prefix included."""
+    return scan_outputs(trajectory_outputs(events), leak_needles(entity_key=entity_key))
