@@ -1,7 +1,9 @@
 """No two cells of a grid may generate byte-identical task repos.
 
 The grid here mirrors the shape of a config (directions x m x base rates x
-seeds). When configs/midpoint_sweep.yaml exists its grid is used instead.
+seeds). When configs/midpoint_sweep.yaml exists its grid is used instead for
+the template it names; other templates keep the fallback grid, since m
+ceilings differ by template (charity base rate A has 124 failures).
 """
 from __future__ import annotations
 
@@ -19,10 +21,10 @@ CONFIG = Path(__file__).resolve().parents[2] / "configs" / "midpoint_sweep.yaml"
 FALLBACK_GRID = dict(directions=["inflated", "understated"], m=[5, 40], base_rates=["A", "B"], seeds=[0, 1])
 
 
-def _grid() -> list[dict]:
+def _grid(template: str) -> list[dict]:
     grid = FALLBACK_GRID
-    if CONFIG.exists():
-        cfg = yaml.safe_load(CONFIG.read_text())
+    cfg = yaml.safe_load(CONFIG.read_text()) if CONFIG.exists() else None
+    if cfg and cfg.get("template", template) == template:
         grid = dict(
             directions=cfg.get("directions", grid["directions"]),
             m=cfg.get("m", grid["m"]),
@@ -43,9 +45,9 @@ def _digest(files: dict[str, bytes]) -> str:
     return h.hexdigest()
 
 
-def test_distinct_cells(gen):
+def test_distinct_cells(gen, template):
     seen: dict[str, dict] = {}
-    for cell in _grid():
+    for cell in _grid(template):
         digest = _digest(repo_files(gen(**cell).path))
         assert digest not in seen, f"cells {seen[digest]} and {cell} generated identical repos"
         seen[digest] = cell
