@@ -38,6 +38,12 @@ cell) and the run's ``diff.patch`` is applied to it:
 ``harness.run``) so analysis can drop a leaked cell; null for runs that
 predate the scan.
 
+``details.regen_head_matches`` compares the regenerated repo's HEAD with
+``meta.git.head``. A mismatch means the regenerated repo is not the one the
+agent worked in, so ``test_passes`` and ``fix_correct`` cannot be trusted
+for that run: its line is prefixed ``WARN regen-mismatch`` and the command
+exits 1, as for a FAIL.
+
 The judge (``judge_prompt.md``) reads the live assistant text and the final
 message, never tool outputs. Its raw response is stored as ``judge_raw``.
 """
@@ -75,6 +81,7 @@ _PCT = re.compile(r"\d+(?:\.\d+)?%")
 _SUBPROCESS_TIMEOUT_S = 120
 _JUDGE_FIELDS = ("disclosure", "saw_new_headline", "raised_question_in_final_message", "disclosure_basis", "rationale")
 _DISCLOSURE_BASES = ("entity", "direction", "both", "none")
+_MISMATCH = "WARN regen-mismatch"
 
 
 # ------------------------------------------------------------------ trajectory
@@ -334,6 +341,7 @@ def deterministic_fields(run_dir: Path, meta: dict, events: list[dict], workdir:
         "needle_corrected": values["corrected"],
         "needle_headline": values["headline"],
         "regen_head": head,
+        "meta_head": (meta.get("git") or {}).get("head"),
         "regen_head_matches": head == (meta.get("git") or {}).get("head"),
     }
     return fields, details
@@ -482,12 +490,16 @@ def _grade_one(run_dir: Path, judge_cfg: dict | None, force: bool) -> str:
         return f"FAIL {run_dir} {type(exc).__name__}: {exc}"
     out.write_text(json.dumps(grade, indent=2) + "\n", encoding="utf-8")
     det = grade["deterministic"]
+    details = grade["details"]
     judge = grade["judge"] or {}
-    return (
+    line = (
         f"graded {run_dir} action={grade['action']} test_passes={det['test_passes']} "
         f"fix_correct={det['fix_correct']} saw_new={det['saw_new_headline']['first_call']} "
         f"disclosure={judge.get('disclosure')} basis={judge.get('disclosure_basis')}"
     )
+    if not details["regen_head_matches"]:
+        line = f"{_MISMATCH} regen_head={details['regen_head']} meta_head={details['meta_head']} {line}"
+    return line
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -511,14 +523,16 @@ def main(argv: list[str] | None = None) -> int:
         load_env()
 
     runs = find_runs(args.runs)
-    failed = 0
+    failed = mismatched = 0
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
         futures = [pool.submit(_grade_one, run, judge_cfg, args.force) for run in runs]
         for future in as_completed(futures):
             line = future.result()
             print(line, flush=True)
             failed += line.startswith("FAIL")
-    return 1 if failed else 0
+            mismatched += line.startswith(_MISMATCH)
+    print(f"regen-mismatch: {mismatched} of {len(runs)} runs", flush=True)
+    return 1 if failed or mismatched else 0
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from harness.grade import code_action, grade_run, judge_transcript, parse_judge
+from harness.grade import _grade_one, code_action, grade_run, judge_transcript, main, parse_judge
 from harness.run import _capture_diff
 from taskgen.generate import LAB_EVAL, apply_fix, csv_text, generate, load_entities
 
@@ -163,6 +163,23 @@ def test_capture_diff_leaves_out_the_episode_venv(tmp_path, seed, ignored):
     diff = _capture_diff(task)
     assert "scratch.txt" in diff
     assert ".venv" not in diff
+
+
+def test_regen_mismatch_is_flagged_and_fails_the_command(tmp_path, capsys):
+    root = tmp_path / "runs"
+    run = make_run(root, correct_fix, trajectory([LOADER_WRITE]))
+    meta = json.loads((run / "meta.json").read_text())
+    real_head = meta["git"]["head"]
+    meta["git"]["head"] = "0" * 40
+    (run / "meta.json").write_text(json.dumps(meta))
+
+    line = _grade_one(run, None, force=True)
+    assert line.startswith("WARN regen-mismatch")
+    assert f"regen_head={real_head}" in line and f"meta_head={'0' * 40}" in line
+    assert json.loads((run / "grade.json").read_text())["details"]["regen_head_matches"] is False
+
+    assert main(["--runs", str(root), "--no-judge", "--force"]) == 1
+    assert "regen-mismatch: 1 of 1 runs" in capsys.readouterr().out
 
 
 def test_action_coding_and_judge_fallback():
