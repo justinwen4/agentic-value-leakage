@@ -159,8 +159,12 @@ def test_neutral_gaps_and_threshold():
     assert list(zip(matched["a"], matched["b"])) == [("a", "c"), ("c", "b")]
     assert np.allclose(matched["gap"], [1.0, 0.1])
     result = threshold(gaps, matched)
-    assert result["threshold"] == max(result["neutral_p95"], result["matched_p95"])
+    # The matched-real p95 (~0.95) is larger but descriptive only.
+    assert result["matched_p95"] > result["neutral_p95"]
+    assert result["threshold"] == result["neutral_p95"]
     assert result["neutral_n"] == 30 and result["matched_n"] == 2
+    assert result["matched_use"] == "descriptive"
+    assert threshold(gaps, None)["threshold"] == result["neutral_p95"]
 
 
 def test_matched_real_pairs_stay_within_a_role():

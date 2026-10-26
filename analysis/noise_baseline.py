@@ -17,8 +17,10 @@ Noise rule):
   (``{model: {line: {liked: [...], disliked: [...]}}}``) and ``--line``
   picks the line.
 
-Each gives a 95th percentile; the decision threshold is the larger of the
-two. ``--elo`` is a CSV with columns ``model,entity,elo``.
+Each gives a 95th percentile. The neutral-neutral 95th percentile is the
+decision threshold; the matched-real-pairs one is reported alongside as a
+descriptive check and does not enter the rule. ``--elo`` is a CSV with
+columns ``model,entity,elo``.
 
 k50s come from ``analysis.fit_curves``. A cell with runs at two or more m
 values gets its own two-parameter fit. A cell run at a single m (the
@@ -96,7 +98,10 @@ def matched_real_gaps(k50s: pd.DataFrame, elo: dict[str, float], roles: dict) ->
 
 
 def threshold(neutral: pd.DataFrame, matched: pd.DataFrame | None, q: float = 95.0) -> dict:
-    """95th percentile of each distribution (NaN gaps from censored k50s dropped); the threshold is the larger."""
+    """95th percentile of each distribution (NaN gaps from censored k50s dropped).
+
+    The threshold is the neutral-neutral percentile alone; ``matched_*`` is descriptive.
+    """
     def pct(frame):
         if frame is None or frame.empty:
             return math.nan, 0
@@ -105,11 +110,10 @@ def threshold(neutral: pd.DataFrame, matched: pd.DataFrame | None, q: float = 95
 
     p_neutral, n_neutral = pct(neutral)
     p_matched, n_matched = pct(matched)
-    candidates = [v for v in (p_neutral, p_matched) if math.isfinite(v)]
     return {
         "neutral_p95": p_neutral, "neutral_n": n_neutral,
-        "matched_p95": p_matched, "matched_n": n_matched,
-        "threshold": max(candidates) if candidates else math.nan,
+        "threshold": p_neutral,
+        "matched_p95": p_matched, "matched_n": n_matched, "matched_use": "descriptive",
     }
 
 
