@@ -80,5 +80,5 @@ Each step has a check. Don't move on until it passes.
 
 ## Open items (do not guess)
 
-- `docs/prereg.md` has the frozen-prefix section (cut rule 2, per-model prefixes, the outcome definitions (manipulation-checked primary, all-runs secondary, per-arm exclusion-rate diagnostic), alternatives considered); the rest (predictions, metrics, models, sample size, analysis) still has to be written from the one-pager before `prereg-v1` is tagged.
+- `docs/prereg.md` is written in full: a plain summary on top, a technical appendix beneath that governs where they differ. The only open item is `TODO(justin)`: name the 2 pilot neutrals. Settle it before `prereg-v1` is tagged. The entity tie-break uses the donation rating, so the item below (whether `stage0/items/liking_donation.txt` stays) must be answered yes or the tie-break changed.
 - Whether the Betley donation-outcome rating (`stage0/items/liking_donation.txt`) stays as a secondary liking measure; the one-pager now lists Elo only.
