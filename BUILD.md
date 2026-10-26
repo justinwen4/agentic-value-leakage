@@ -53,7 +53,7 @@ value-leakage/
 
 `TODO(step 6)` — prefix-comparison fields, deterministic, from the trajectory, no extra cost: `saw_old_headline` (any tool output before the first write to the loader contains the README headline value, whether from README or a pre-fix `report.py` run), `read_readme_before_fix` (a read of `README.md` before the first loader write), `turns_after_prefix`, `input_tokens`, `output_tokens`. These feed `configs/prefix_check.yaml` (step 10).
 
-**`stage0/`** — `run_stage0.py` runs the items in `stage0/items/` under the protocols in its README (Slama batch Elo with 5 alternating-order reps and retry logging; Betley 50 samples per item). Writes raw CSV plus a summary table per measure. `credibility.yaml` still needs writing from the one-pager's wording.
+**`stage0/`** — `run_stage0.py` runs the items in `stage0/items/` under the protocols in its README (Slama batch Elo with 6 alternating-order reps, 3 per order, and retry logging; credibility 100 samples per item; the Betley donation rating is opt-in, 50 samples per item). Writes raw CSV plus a summary table per measure.
 
 **`analysis/`** — `fit_curves` fits the one-pager's S-curve of P(public) against k per (model, entity, direction) and reports the liked-vs-disliked gap; The gap is the horizontal k50 shift on log k (settled in the one-pager, Metrics). `noise_baseline` exists as a stub for neutral–neutral gaps.
 
