@@ -1,5 +1,6 @@
 """Step 7 check: a fake provider with a fixed preference order reproduces a known Elo
-ranking; both-order flipping, retry logging, donation refusals and <score> parsing."""
+ranking; balanced both-order flipping, retry logging, donation refusals (opt-in measure)
+and <score> parsing."""
 from __future__ import annotations
 
 import copy
@@ -48,7 +49,7 @@ def run(chat, tmp_path, measures, **kw):
 
 def test_known_elo_ranking(tmp_path):
     raw = run(FakeChat(), tmp_path, ["elo"])
-    assert len(raw) == 6 * 5
+    assert s0.REPS == 6 and len(raw) == 6 * 6
     summ = pd.read_csv(tmp_path / "summary_elo.csv")
     got = dict(zip(summ["entity"], summ["elo_mean"]))
     # 3,2,1,0 wins of 3 games, expected 1.5 each: 1500 + 32 * (wins - 1.5)
@@ -68,8 +69,35 @@ def test_both_orders_alternate_across_reps(tmp_path):
         m = re.search(r"positive impact on the world: (.+?) and (.+?)\. Please", t)
         first_by_rep.setdefault(frozenset(m.groups()), []).append(m.group(1))
     for firsts in first_by_rep.values():
-        assert len(set(firsts)) == 2 and len(firsts) == 5
-        assert sorted(firsts).count(firsts[0]) == 3  # reps 0,2,4 share the first slot
+        assert len(set(firsts)) == 2 and len(firsts) == 6
+        assert firsts.count(firsts[0]) == 3  # reps 0,2,4 share the first slot; 1,3,5 the other
+
+
+def test_odd_reps_refused_unless_allowed(tmp_path):
+    with pytest.raises(ValueError, match="odd"):
+        run(FakeChat(), tmp_path, ["elo"], reps=5)
+    raw = run(FakeChat(), tmp_path / "b", ["elo"], reps=5, allow_odd_reps=True)
+    assert len(raw) == 6 * 5
+    with pytest.raises(SystemExit, match="--allow-odd-reps"):
+        s0.main(["--reps", "5", "--model-key", "none"])
+
+
+def test_default_measures_exclude_donation():
+    assert s0.DEFAULT_MEASURES.split(",") == ["elo", "credibility"]
+
+
+def test_only_reps_and_skip_neutral_pairs_top_up(tmp_path):
+    ents = {**ENTITIES, **{k: {"key": k, "kind": "neutral_lab", "display_name": n}
+                           for k, n in (("echo", "Echo Lab"), ("foxtrot", "Foxtrot Lab"))}}
+    order = NAMES + ["Echo Lab", "Foxtrot Lab"]
+    s0.run_all(FakeChat(order=order), "fake", ents, list(ents), ["elo"], out=tmp_path, workers=1,
+               prefill_mode="instructed", only_reps=[5], skip_neutral_pairs=True)
+    raw = pd.read_csv(tmp_path / "raw.csv", keep_default_na=False)
+    # 15 pairs of 6 names, minus Echo-Foxtrot; rep 5 only, flipped
+    assert len(raw) == 14 and set(raw["rep"]) == {5} and set(raw["order"]) == {"flipped"}
+    assert "Foxtrot Lab|Echo Lab" not in set(raw["entities"])
+    with pytest.raises(ValueError, match="only_reps"):
+        s0.run_all(FakeChat(), "fake", ENTITIES, list(ENTITIES), ["elo"], out=tmp_path / "b", only_reps=[6])
 
 
 def test_position_bias_cancels(tmp_path):
@@ -85,7 +113,7 @@ def test_position_bias_cancels(tmp_path):
 
 def test_retry_logging_and_missing(tmp_path):
     pair = ("Alpha Lab", "Bravo Lab")
-    raw = run(FakeChat(refuse={pair: 3}), tmp_path, ["elo"], reps=1)
+    raw = run(FakeChat(refuse={pair: 3}), tmp_path, ["elo"], reps=1, allow_odd_reps=True)
     row = raw[raw["entities"] == "Alpha Lab|Bravo Lab"].iloc[0]
     assert row["retries"] == 3 and row["status"] == "ok" and row["parsed"] == "Alpha Lab"
     assert len(json_list(row["invalid_responses"])) == 3
@@ -95,7 +123,7 @@ def test_retry_logging_and_missing(tmp_path):
 
     # past the cap (30) of consecutive refusals: missing, logged as 31, excluded from Elo
     tmp2 = tmp_path / "b"
-    raw = run(FakeChat(refuse={pair: 500}), tmp2, ["elo"], reps=1)
+    raw = run(FakeChat(refuse={pair: 500}), tmp2, ["elo"], reps=1, allow_odd_reps=True)
     row = raw[raw["entities"] == "Alpha Lab|Bravo Lab"].iloc[0]
     assert row["retries"] == 31 and row["attempts"] == 30 and row["status"] == "missing" and row["parsed"] == ""
     summ = pd.read_csv(tmp2 / "summary_elo.csv").set_index("entity")
@@ -200,7 +228,7 @@ def test_none_mode_is_user_text_only():
 
 
 def test_none_mode_runs_and_is_recorded(tmp_path):
-    s0.run_all(FakeChat(), "fake", ENTITIES, list(ENTITIES), ["elo"], out=tmp_path, workers=1, prefill_mode="none", reps=1)
+    s0.run_all(FakeChat(), "fake", ENTITIES, list(ENTITIES), ["elo"], out=tmp_path, workers=1, prefill_mode="none", reps=1, allow_odd_reps=True)
     raw = pd.read_csv(tmp_path / "raw.csv", keep_default_na=False)
     assert set(raw["prefill_mode"]) == {"none"}
 
@@ -241,7 +269,7 @@ def test_headline_strings_match_task_templates():
 def test_system_date_on_credibility_only(tmp_path):
     chat = FakeChat(score=iter(["<score>50</score>"] * 100), donation=iter(["5"] * 100))
     s0.run_all(chat, "fake", ENTITIES, list(ENTITIES), ["elo", "donation", "credibility"], out=tmp_path, workers=1,
-               prefill_mode="instructed", reps=1, donation_samples=1, cred_samples=1, cred_spec=cred_spec(), date="2026-10-24")
+               prefill_mode="instructed", reps=1, allow_odd_reps=True, donation_samples=1, cred_samples=1, cred_spec=cred_spec(), date="2026-10-24")
     cred = [m for m in chat.calls if "how likely is it" in m[-1]["content"]]
     other = [m for m in chat.calls if m not in cred]
     assert cred and other
@@ -261,7 +289,7 @@ def test_date_default_is_utc_today_and_shared(tmp_path):
 def test_date_flag_and_column(tmp_path):
     chat = FakeChat(score=iter(["<score>50</score>"] * 100), donation=iter(["5"] * 100))
     s0.run_all(chat, "fake", ENTITIES, list(ENTITIES), ["elo", "donation", "credibility"], out=tmp_path, workers=1,
-               prefill_mode="instructed", reps=1, donation_samples=1, cred_samples=1, cred_spec=cred_spec(), date="2025-01-02")
+               prefill_mode="instructed", reps=1, allow_odd_reps=True, donation_samples=1, cred_samples=1, cred_spec=cred_spec(), date="2025-01-02")
     raw = pd.read_csv(tmp_path / "raw.csv", keep_default_na=False, dtype=str)
     assert set(raw[raw.measure == "credibility"]["system_date"]) == {"2025-01-02"}
     assert set(raw[raw.measure != "credibility"]["system_date"]) == {""}
@@ -319,14 +347,14 @@ def test_always_refusing_provider_is_missing_after_exactly_30_attempts():
 def test_run_config_records_commit_and_cap(tmp_path):
     import json
     import subprocess
-    run(FakeChat(), tmp_path, ["elo"], reps=1, max_refusals=7)
+    run(FakeChat(), tmp_path, ["elo"], reps=1, allow_odd_reps=True, max_refusals=7)
     cfg = json.loads((tmp_path / "run_config.json").read_text())
     head = subprocess.run(["git", "-C", str(s0.ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     assert cfg["max_refusals"] == 7 and cfg["model"] == "fake" and cfg["invocations"][0]["commit"] == head
     # resuming with a different cap is refused; the same cap appends an invocation
     with pytest.raises(ValueError, match="max_refusals"):
-        s0.run_all(FakeChat(), "fake", ENTITIES, list(ENTITIES), ["elo"], out=tmp_path, workers=1, reps=1, resume=True, max_refusals=30)
-    s0.run_all(FakeChat(), "fake", ENTITIES, list(ENTITIES), ["elo"], out=tmp_path, workers=1, reps=1, resume=True, max_refusals=7)
+        s0.run_all(FakeChat(), "fake", ENTITIES, list(ENTITIES), ["elo"], out=tmp_path, workers=1, reps=1, allow_odd_reps=True, resume=True, max_refusals=30)
+    s0.run_all(FakeChat(), "fake", ENTITIES, list(ENTITIES), ["elo"], out=tmp_path, workers=1, reps=1, allow_odd_reps=True, resume=True, max_refusals=7)
     assert len(json.loads((tmp_path / "run_config.json").read_text())["invocations"]) == 2
 
 

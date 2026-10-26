@@ -1,4 +1,7 @@
-"""Stage 0 runner: liking (Slama pairwise Elo, Betley donation rating) and credibility.
+"""Stage 0 runner: liking (Slama pairwise Elo) and credibility.
+
+The Betley donation rating was dropped as a liking measure on 2026-10-25 (see
+items/README.md); it still runs with ``--measures donation``, but not by default.
 
 Prompt text comes from ``stage0/items/`` and is never reworded here; this module
 only substitutes placeholders. Protocols are in ``stage0/items/README.md``.
@@ -42,9 +45,12 @@ START = 1500.0
 # Consecutive invalid pairwise responses before a row is missing. Slama used 100; lowered to 30
 # on 2026-10-25 (see items/README.md). The Opus 4.8 lab run used 100; run_config.json records it.
 MAX_REFUSALS = 30
-REPS = 5
+# Slama used 5 reps (3 original, 2 flipped); 6 since 2026-10-25 so each order appears
+# equally often (see items/README.md). Odd values need allow_odd_reps.
+REPS = 6
 DONATION_SAMPLES = 50
 CRED_SAMPLES = 100
+DEFAULT_MEASURES = "elo,credibility"
 
 NOUNS = {"lab": ("AI lab", "AI labs"), "charity": ("charity", "charities")}
 KIND_GROUP = {"lab": "lab", "neutral_lab": "lab", "charity": "charity", "neutral_charity": "charity"}
@@ -235,7 +241,7 @@ def batch_elo(names: list[str], games: list[tuple[str, str]]) -> dict[str, float
 
 
 def pair_schedule(names: list[str], reps: int) -> list[tuple[str, str, int]]:
-    """(first, second, rep): rep 0,2,4 original order, 1,3 flipped."""
+    """(first, second, rep): even reps original order, odd reps flipped."""
     out = []
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
@@ -369,8 +375,15 @@ def run_all(
     out: Path, seed: int = 0, reps: int = REPS, donation_samples: int = DONATION_SAMPLES,
     cred_samples: int = CRED_SAMPLES, prefill_mode: str | None = None, workers: int = 8,
     cred_spec: dict | None = None, date: str | None = None, resume: bool = False,
-    max_refusals: int = MAX_REFUSALS,
+    max_refusals: int = MAX_REFUSALS, allow_odd_reps: bool = False, only_reps: list[int] | None = None,
+    skip_neutral_pairs: bool = False,
 ) -> Path:
+    """``only_reps`` runs just those reps of the schedule; ``skip_neutral_pairs`` drops Elo
+    pairs where both entities are neutral. Both are for topping up an existing run."""
+    if reps % 2 and not allow_odd_reps:
+        raise ValueError(f"reps={reps} is odd, so one order would appear more often; pass allow_odd_reps to run it anyway")
+    if only_reps and not set(only_reps) <= set(range(reps)):
+        raise ValueError(f"only_reps {only_reps} not within range({reps})")
     prior = existing_rows(out / "raw.csv") if resume else []
     for r in prior:
         if r["model"] != model:
@@ -394,12 +407,15 @@ def run_all(
         cred_items = credibility_items({k: entities[k] for k in keys}, spec)
 
     commit, dirty = git_commit()
+    fixed = {"model": model, "seed": seed, "system_date": date, "max_refusals": max_refusals, "prefill_mode": mode,
+             "reasoning": reasoning, "reps": reps, "cred_samples": cred_samples}
+    if "donation" in measures:
+        fixed["donation_samples"] = donation_samples
     record_run_config(
-        out,
-        {"model": model, "seed": seed, "system_date": date, "max_refusals": max_refusals, "prefill_mode": mode,
-         "reasoning": reasoning, "reps": reps, "donation_samples": donation_samples, "cred_samples": cred_samples},
+        out, fixed,
         {"started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "commit": commit, "git_dirty": dirty,
-         "measures": measures, "entities": keys, "resume": resume},
+         "measures": measures, "entities": keys, "resume": resume, "only_reps": only_reps,
+         "skip_neutral_pairs": skip_neutral_pairs},
         resume,
     )
     writer = RawWriter(out / "raw.csv", append=resume)
@@ -411,8 +427,11 @@ def run_all(
             names = [entities[k]["display_name"] for k in keys if KIND_GROUP[entities[k]["kind"]] == group]
             if len(names) < 2:
                 continue
+            neutral = {entities[k]["display_name"] for k in keys if entities[k]["kind"].startswith("neutral_")}
             for first, second, rep in pair_schedule(sorted(names), reps):
                 if ("elo", f"{first}|{second}", str(rep)) in done:
+                    continue
+                if (only_reps and rep not in only_reps) or (skip_neutral_pairs and {first, second} <= neutral):
                     continue
                 def job(first=first, second=second, rep=rep, group=group) -> None:
                     s = seed_for("elo", first, second, rep, base=seed)
@@ -527,9 +546,13 @@ def summarize(out: Path, reps: int = REPS) -> None:
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--model-key", action="append", help="models[].name in configs/prefill_record.yaml (repeatable; default all)")
-    ap.add_argument("--measures", default="elo,donation,credibility")
+    ap.add_argument("--measures", default=DEFAULT_MEASURES,
+                    help=f"comma-separated from elo, credibility, donation (default {DEFAULT_MEASURES})")
     ap.add_argument("--entities", help="comma-separated entity keys (default all)")
-    ap.add_argument("--reps", type=int, default=REPS)
+    ap.add_argument("--reps", type=int, default=REPS, help=f"pairwise reps, even (default {REPS})")
+    ap.add_argument("--allow-odd-reps", action="store_true", help="allow an odd --reps (unbalanced pair order)")
+    ap.add_argument("--only-reps", help="comma-separated reps to run, for topping up an existing run")
+    ap.add_argument("--skip-neutral-pairs", action="store_true", help="skip Elo pairs where both entities are neutral")
     ap.add_argument("--donation-samples", type=int, default=DONATION_SAMPLES)
     ap.add_argument("--cred-samples", type=int, default=CRED_SAMPLES)
     ap.add_argument("--prefill-mode", choices=list(PREFILL_MODES))
@@ -541,6 +564,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="consecutive invalid pairwise responses before a row is missing")
     ap.add_argument("--resume", action="store_true", help="append to an existing raw.csv, skipping calls already in it")
     args = ap.parse_args(argv)
+    if args.reps % 2 and not args.allow_odd_reps:
+        sys.exit(f"--reps {args.reps} is odd; pass --allow-odd-reps to run it anyway")
 
     from harness.env import load_env
 
@@ -555,13 +580,18 @@ def main(argv: list[str] | None = None) -> None:
         if k not in entities:
             sys.exit(f"unknown entity {k!r}")
     measures = args.measures.split(",")
+    unknown = set(measures) - {"elo", "credibility", "donation"}
+    if unknown:
+        sys.exit(f"unknown measure(s) {sorted(unknown)}")
+    only_reps = [int(x) for x in args.only_reps.split(",")] if args.only_reps else None
     run_date = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for m in models:
         chat = OpenRouterChat(m)
         raw = run_all(chat, m["name"], entities, keys, measures, out=args.out / m["name"], seed=args.seed,
                       reps=args.reps, donation_samples=args.donation_samples, cred_samples=args.cred_samples, date=run_date,
                       prefill_mode=args.prefill_mode, workers=args.workers, resume=args.resume,
-                      max_refusals=args.max_refusals)
+                      max_refusals=args.max_refusals, allow_odd_reps=args.allow_odd_reps, only_reps=only_reps,
+                      skip_neutral_pairs=args.skip_neutral_pairs)
         print(f"{m['name']}: {raw}")
 
 
