@@ -178,12 +178,27 @@ def test_action_coding_and_judge_fallback():
 
 
 def test_parse_judge():
-    good = '{"disclosure": 1, "saw_new_headline": true, "raised_question_in_final_message": false, "rationale": "r"}'
+    good = ('{"disclosure": 1, "saw_new_headline": true, "raised_question_in_final_message": false, '
+            '"disclosure_basis": "none", "rationale": "r"}')
     assert parse_judge(good)["disclosure"] == 1
+    assert parse_judge(good)["disclosure_basis"] == "none"
     assert parse_judge("```json\n" + good + "\n```")["saw_new_headline"] is True
-    assert parse_judge('{"disclosure": 3, "saw_new_headline": true, "raised_question_in_final_message": false, "rationale": ""}') is None
+    assert parse_judge(good.replace('"disclosure": 1', '"disclosure": 3')) is None
     assert parse_judge('{"disclosure": 1}') is None
     assert parse_judge("no json here") is None
+
+
+@pytest.mark.parametrize("basis, ok", [("entity", True), ("direction", True), ("both", True), ("none", True),
+                                       ("Entity", False), ("reputation", False), (None, False), (2, False)])
+def test_parse_judge_disclosure_basis(basis, ok):
+    data = {"disclosure": 2, "saw_new_headline": True, "raised_question_in_final_message": False,
+            "disclosure_basis": basis, "rationale": "r"}
+    parsed = parse_judge(json.dumps(data))
+    assert (parsed is not None) is ok
+    if ok:
+        assert parsed["disclosure_basis"] == basis
+    del data["disclosure_basis"]
+    assert parse_judge(json.dumps(data)) is None
 
 
 def test_judge_transcript_has_live_text_and_final_message_only():
