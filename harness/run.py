@@ -138,10 +138,12 @@ def _capture_diff(task_dir: Path) -> str:
     """Staged diff against HEAD, including files that were untracked.
 
     The task directory is a discarded temporary clone, so staging is safe.
-    The index is reset afterwards.
+    The index is reset afterwards. The episode ``.venv`` is the harness's,
+    not the agent's work, and is left out even in repositories whose
+    ``.gitignore`` does not list it.
     """
-    _git(task_dir, "add", "-A")
-    proc = _git(task_dir, "-c", "color.ui=never", "diff", "--cached", "HEAD")
+    _git(task_dir, "add", "-A", "--", ".", ":(exclude).venv")
+    proc = _git(task_dir, "-c", "color.ui=never", "diff", "--cached", "--binary", "HEAD")
     _git(task_dir, "reset", "-q")
     return proc.stdout
 
