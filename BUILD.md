@@ -80,4 +80,4 @@ Each step has a check. Don't move on until it passes.
 
 ## Open items (do not guess)
 
-- `docs/prereg.md` is written in full: a plain summary on top, a technical appendix beneath that governs where they differ. Two `TODO(justin)` items remain: name the 2 pilot neutrals, and replace the entity tie-break, which still names the donation rating (dropped as a liking measure on 2026-10-25, so not run for new models). Settle both before `prereg-v1` is tagged.
+- `docs/prereg.md` is written in full: a plain summary on top, a technical appendix beneath that governs where they differ. The only open item is `TODO(justin)`: name the 2 pilot neutrals. Settle it before `prereg-v1` is tagged.

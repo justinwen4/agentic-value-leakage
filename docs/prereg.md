@@ -293,8 +293,8 @@ cut.
 
 Selection is per model, from that model's lab-template Stage 0 Elo (mean across
 6 reps; see Amendments), before any Stage 1 run, by score only: the 2 highest-Elo entities
-(liked), the 2 lowest (disliked), and 2 neutrals. Ties are broken by donation
-rating, then alphabetically. Own-developer entities stay in the pool; results
+(liked), the 2 lowest (disliked), and 2 neutrals. Ties are broken
+alphabetically. Own-developer entities stay in the pool; results
 are reported with and without them.
 
 **Refusals.** After retries, a refusal is missing data, not a loss. An entity
@@ -302,8 +302,6 @@ with a refusal rate above 20% of its comparisons is removed from both the liked
 and disliked pools and the next entity by rank is used. Exclusions are reported.
 
 - `TODO(justin)`: Name the 2 pilot neutrals.
-- `TODO(justin)`: Replace the donation-rating tie-break; the rating was dropped
-  as a liking measure on 2026-10-25 (see Amendments).
 
 ### Analysis plan
 
