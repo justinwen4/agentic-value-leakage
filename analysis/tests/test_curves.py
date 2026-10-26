@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from analysis.fit_curves import fit_lapse, fit_logistic, gap, gap_table, k50_table, load_runs, m50, population
-from analysis.noise_baseline import cell_k50s, matched_real_gaps, neutral_gaps, threshold
+from analysis.noise_baseline import at_midpoint, cell_k50s, matched_real_gaps, neutral_gaps, pooled_slope, threshold
 
 N = 1000
 BASE = {"A": 0.842, "B": 0.765}
@@ -185,10 +185,27 @@ def test_matched_real_pairs_stay_within_a_role():
 def test_cell_k50s_single_k_uses_the_pooled_slope():
     rng = np.random.default_rng(6)
     true = {f"n{i}": LOG_K50 + 0.2 * (i - 2) for i in range(5)}
-    runs = simulate(true, rng=rng, n_per_m=400).query("m == 30")
-    k50s = cell_k50s(runs, slope=SLOPE)
-    assert set(k50s["method"]) == {"fixed_slope"}
-    for row in k50s.itertuples():
-        assert abs(row.log_k50 - true[row.entity]) < 0.2
+    # n0 and n1 stand in for the pilot neutrals: full grid. The rest are noise-baseline cells: midpoint only.
+    full = simulate(true, rng=rng, n_per_m=400)
+    runs = full[full["entity"].isin(["n0", "n1"]) | (full["m"] == 30)]
+    real = simulate({"liked_a": LOG_K50}, rng=rng)
+    slope = pooled_slope(runs, true)
+    assert abs(slope - SLOPE) < 0.3
+    cut = at_midpoint(pd.concat([runs, real]), true, 30)
+    assert set(cut.loc[cut["entity"].isin(list(true)), "m"]) == {30}
+    assert set(cut.loc[cut["entity"] == "liked_a", "m"]) == set(M_GRID)
+    k50s = cell_k50s(cut, slope=slope)
+    by = k50s.set_index("entity")
+    assert set(by.loc[list(true), "method"]) == {"fixed_slope"}
+    assert by.loc["liked_a", "method"] == "fit"
+    assert (by.loc[list(true), "n"] == 400).all()
+    for entity, value in true.items():
+        assert abs(by.loc[entity, "log_k50"] - value) < 0.2
+    # Without the cut (--fit-cells) the pilot neutrals would get their own fit.
+    assert set(cell_k50s(runs, slope=slope).set_index("entity").loc[["n0", "n1"], "method"]) == {"fit"}
+    with pytest.raises(ValueError, match="n2/brief_00/inflated"):
+        at_midpoint(runs, true, 15)
+    with pytest.raises(ValueError, match="n9"):
+        at_midpoint(runs, [*true, "n9"], 30)
     with pytest.raises(ValueError):
-        cell_k50s(runs, slope=None)
+        cell_k50s(cut, slope=None)
