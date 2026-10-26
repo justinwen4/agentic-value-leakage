@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import re
@@ -85,7 +86,7 @@ def reasoning_body(setting: str) -> dict:
 
 
 RAW_FIELDS = [
-    "model", "measure", "item", "entities", "kind", "order", "rep", "sample", "response",
+    "model", "measure", "item", "variant", "entities", "kind", "order", "rep", "sample", "response",
     "parsed", "status", "retries", "attempts", "invalid_responses", "prefill_mode", "reasoning", "system_date", "seed",
 ]
 
@@ -152,27 +153,36 @@ def _fill(template: str, **kw: str) -> str:
 
 
 def credibility_items(entities: dict[str, dict], spec: dict) -> list[dict]:
-    """Expand credibility.yaml into items: {id, group, entity, value, prompt}."""
+    """Expand credibility.yaml into items: {id, group, entity, value, variant, prompt}.
+
+    A group block either has one ``result`` or a ``variants`` list of {name, result};
+    an items file may leave out a group it does not use."""
     if not spec.get("anchors"):
         raise RuntimeError("credibility.yaml `anchors` is empty")
     items = []
     for group in ("lab", "charity"):
-        g = spec[group]
+        g = spec.get(group)
+        if g is None:
+            continue
         keys = [k for k, e in entities.items() if e["kind"] in g["entity_kinds"]]
         if not keys:
             continue
         if not g.get("blind_subject"):
             raise RuntimeError(f"credibility.yaml {group}.blind_subject is empty")
         subjects = [(k, entities[k]["display_name"]) for k in keys] + [("blind", g["blind_subject"])]
-        for key, subject in subjects:
-            for value in g["values"]:
-                result = _fill(g["result"], PCT=value)
-                q = _fill(
-                    " ".join(spec["question"].split()),
-                    ENTITY=subject, REPORT=g["report"], RESULT=result,
-                )
-                prompt = "\n".join([q, " ".join(spec["anchors"].split()), " ".join(spec["answer_format"].split())])
-                items.append({"id": f"{group}:{key}:{value}", "group": group, "entity": key, "value": value, "prompt": prompt})
+        variants = [(v["name"], v["result"]) for v in g["variants"]] if "variants" in g else [("", g["result"])]
+        for variant, result_text in variants:
+            for key, subject in subjects:
+                for value in g["values"]:
+                    result = _fill(result_text, PCT=value)
+                    q = _fill(
+                        " ".join(spec["question"].split()),
+                        ENTITY=subject, REPORT=g["report"], RESULT=result,
+                    )
+                    prompt = "\n".join([q, " ".join(spec["anchors"].split()), " ".join(spec["answer_format"].split())])
+                    item_id = f"{group}:{variant}:{key}:{value}" if variant else f"{group}:{key}:{value}"
+                    items.append({"id": item_id, "group": group, "entity": key, "value": value, "variant": variant,
+                                  "prompt": prompt})
     return items
 
 
@@ -374,12 +384,14 @@ def run_all(
     chat: Chat, model: str, entities: dict[str, dict], keys: list[str], measures: list[str], *,
     out: Path, seed: int = 0, reps: int = REPS, donation_samples: int = DONATION_SAMPLES,
     cred_samples: int = CRED_SAMPLES, prefill_mode: str | None = None, workers: int = 8,
-    cred_spec: dict | None = None, date: str | None = None, resume: bool = False,
+    cred_spec: dict | None = None, cred_items_path: Path | None = None, date: str | None = None, resume: bool = False,
     max_refusals: int = MAX_REFUSALS, allow_odd_reps: bool = False, only_reps: list[int] | None = None,
     skip_neutral_pairs: bool = False,
 ) -> Path:
     """``only_reps`` runs just those reps of the schedule; ``skip_neutral_pairs`` drops Elo
-    pairs where both entities are neutral. Both are for topping up an existing run."""
+    pairs where both entities are neutral. Both are for topping up an existing run.
+    ``cred_items_path`` is the credibility items file (default items/credibility.yaml);
+    ``cred_spec`` passes the parsed items directly instead."""
     if reps % 2 and not allow_odd_reps:
         raise ValueError(f"reps={reps} is odd, so one order would appear more often; pass allow_odd_reps to run it anyway")
     if only_reps and not set(only_reps) <= set(range(reps)):
@@ -402,13 +414,20 @@ def run_all(
         raise ValueError(f"unknown prefill_mode {mode!r}")
     reasoning = REASONING.get(model, "")
     cred_items = None
+    cred_source = {}
     if "credibility" in measures:
-        spec = cred_spec if cred_spec is not None else yaml.safe_load((ITEMS / "credibility.yaml").read_text())
+        spec = cred_spec
+        if spec is None:
+            path = Path(cred_items_path or ITEMS / "credibility.yaml").resolve()
+            data = path.read_bytes()
+            spec = yaml.safe_load(data)
+            shown = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+            cred_source = {"credibility_items": str(shown), "credibility_items_sha256": hashlib.sha256(data).hexdigest()}
         cred_items = credibility_items({k: entities[k] for k in keys}, spec)
 
     commit, dirty = git_commit()
     fixed = {"model": model, "seed": seed, "system_date": date, "max_refusals": max_refusals, "prefill_mode": mode,
-             "reasoning": reasoning, "reps": reps, "cred_samples": cred_samples}
+             "reasoning": reasoning, "reps": reps, "cred_samples": cred_samples, **cred_source}
     if "donation" in measures:
         fixed["donation_samples"] = donation_samples
     record_run_config(
@@ -468,7 +487,7 @@ def run_all(
                     s = seed_for("cred", item["id"], i, base=seed)
                     text = chat.complete(credibility_messages(item["prompt"], date), s)
                     v = parse_score(text)
-                    writer.write({**common, "measure": "credibility", "item": item["id"], "entities": name,
+                    writer.write({**common, "measure": "credibility", "item": item["id"], "variant": item["variant"], "entities": name,
                                   "kind": item["group"], "order": item["value"], "sample": i, "response": text,
                                   "parsed": "" if v is None else v, "status": "ok" if v is not None else "parse_failure", "system_date": date,
                                   "retries": 0, "attempts": 1, "seed": s})
@@ -533,6 +552,8 @@ def summarize(out: Path, reps: int = REPS) -> None:
         else:
             sub = sub.assign(v=pd.to_numeric(sub["parsed"], errors="coerce"))
             keys = ["entities"] if measure == "donation" else ["entities", "kind", "order"]
+            if measure == "credibility" and "variant" in sub and (sub["variant"] != "").any():
+                keys = ["variant", *keys]
             g = sub.groupby(keys)
             table = g.agg(mean=("v", "mean"), sd=("v", "std"), n_valid=("v", "count"), n_total=("v", "size")).reset_index()
             table["n_refusals" if measure == "donation" else "n_parse_failures"] = table["n_total"] - table["n_valid"]
@@ -555,6 +576,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--skip-neutral-pairs", action="store_true", help="skip Elo pairs where both entities are neutral")
     ap.add_argument("--donation-samples", type=int, default=DONATION_SAMPLES)
     ap.add_argument("--cred-samples", type=int, default=CRED_SAMPLES)
+    ap.add_argument("--credibility-items", type=Path, default=ITEMS / "credibility.yaml",
+                    help="credibility items file, same schema as items/credibility.yaml (default that file)")
     ap.add_argument("--prefill-mode", choices=list(PREFILL_MODES))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--date", help="YYYY-MM-DD for the credibility system message (default: run start date, UTC)")
@@ -589,6 +612,7 @@ def main(argv: list[str] | None = None) -> None:
         chat = OpenRouterChat(m)
         raw = run_all(chat, m["name"], entities, keys, measures, out=args.out / m["name"], seed=args.seed,
                       reps=args.reps, donation_samples=args.donation_samples, cred_samples=args.cred_samples, date=run_date,
+                      cred_items_path=args.credibility_items,
                       prefill_mode=args.prefill_mode, workers=args.workers, resume=args.resume,
                       max_refusals=args.max_refusals, allow_odd_reps=args.allow_odd_reps, only_reps=only_reps,
                       skip_neutral_pairs=args.skip_neutral_pairs)

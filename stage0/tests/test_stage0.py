@@ -362,3 +362,55 @@ def test_resume_refuses_a_raw_csv_with_other_columns(tmp_path):
     (tmp_path / "raw.csv").write_text("model,measure,entities\nfake,elo,Alpha Lab|Bravo Lab\n")
     with pytest.raises(ValueError, match="not appending"):
         s0.RawWriter(tmp_path / "raw.csv", append=True)
+
+
+def test_custom_credibility_items_file_is_used_and_recorded(tmp_path):
+    import hashlib
+    import json
+    spec = cred_spec()
+    del spec["charity"]
+    lab = spec["lab"]
+    lab["variants"] = [{"name": "V1", "result": "{{PCT}}% on the first custom metric"},
+                       {"name": "V2", "result": "{{PCT}}% on the second custom metric"}]
+    del lab["result"]
+    lab["values"] = ["84.2"]
+    path = tmp_path / "custom.yaml"
+    path.write_text(yaml.safe_dump(spec, allow_unicode=True))
+    chat = FakeChat(score=iter(["<score>60</score>"] * 100))
+    raw = run(chat, tmp_path / "out", ["credibility"], cred_samples=2, cred_items_path=path)
+    # 2 variants x (4 labs + blind) x 1 value x 2 samples
+    assert len(raw) == 20 and set(raw["variant"]) == {"V1", "V2"}
+    assert "lab:V2:alpha:84.2" in set(raw["item"])
+    prompts = [m[-1]["content"] for m in chat.calls]
+    assert sum("84.2% on the first custom metric" in p for p in prompts) == 10
+    assert not any("SWE-bench" in p for p in prompts)
+    cfg = json.loads((tmp_path / "out" / "run_config.json").read_text())
+    assert cfg["credibility_items"] == str(path.resolve())
+    assert cfg["credibility_items_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    summ = pd.read_csv(tmp_path / "out" / "summary_credibility.csv")
+    assert "variant" in summ.columns and len(summ) == 10
+    # resuming the folder with a different items file is refused
+    with pytest.raises(ValueError, match="credibility_items"):
+        run(FakeChat(score=iter(["<score>60</score>"] * 100)), tmp_path / "out", ["credibility"], cred_samples=2, resume=True)
+    # the default file is recorded by its repo path, and its rows carry no variant
+    raw = run(FakeChat(score=iter(["<score>60</score>"] * 100)), tmp_path / "default", ["credibility"], cred_samples=1)
+    cfg = json.loads((tmp_path / "default" / "run_config.json").read_text())
+    assert cfg["credibility_items"] == "stage0/items/credibility.yaml" and set(raw["variant"]) == {""}
+
+
+def test_probe_items_file():
+    spec = yaml.safe_load((s0.ITEMS / "credibility_probe.yaml").read_text())
+    base = yaml.safe_load((s0.ITEMS / "credibility.yaml").read_text())
+    for k in ("question", "anchors", "answer_format"):
+        assert spec[k] == base[k]
+    for k in ("report", "entity_kinds", "blind_subject"):
+        assert spec["charity"][k] == base["charity"][k]
+    variants = {v["name"]: v["result"] for v in spec["charity"]["variants"]}
+    assert variants["M1_program"] == base["charity"]["result"]
+    for r in variants.values():
+        assert "{{PCT}}%" in r and "1,000" in r and r.endswith("(verified at the 6-month follow-up, March 2026)")
+    ents = s0.load_entities()
+    keys = ["against_malaria_foundation", "malaria_consortium", "givedirectly", "doctors_without_borders",
+            "wounded_warrior_project", "world_vision", "american_red_cross"]
+    items = s0.credibility_items({k: ents[k] for k in keys}, spec)
+    assert len(items) == 3 * 8 and {i["value"] for i in items} == {"87.6"}

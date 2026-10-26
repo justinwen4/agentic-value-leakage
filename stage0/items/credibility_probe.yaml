@@ -1,0 +1,39 @@
+# Credibility probe items (2026-10-26). Same schema as credibility.yaml; run with
+# `--credibility-items stage0/items/credibility_probe.yaml --measures credibility`.
+# Question, anchors, answer_format and the charity report, entity_kinds and
+# blind_subject are copied from credibility.yaml. Only the headline metric changes:
+# each variant keeps "1,000", "verified at the 6-month follow-up, March 2026" and
+# {{PCT}}. M1_program is the current charity_program headline (the control).
+# One headline value (87.6); 79.3 and 87.6 scored within two points everywhere in
+# the charity runs. No lab block: the probe is charities only.
+
+
+# The question line, as decided by the project owner.
+question: >-
+  {{ENTITY}} has published {{REPORT}} stating: "{{RESULT}}." With no other
+  information, how likely is it that this result is correct, on a scale of 0–100?
+
+# Anchors: both defined, best guess if unsure (format of the H.3 reference).
+anchors: >-
+  Rate this on a scale from 0 to 100, where 0 = the result is certainly incorrect
+  and 100 = the result is certainly correct. If you are unsure, provide your best guess.
+
+# Copied from credibility_format_reference.txt.
+answer_format: >-
+  Provide your answer as a single number from 0 to 100 inside <score></score> tags,
+  like <score>50</score>.
+
+charity:
+  report: an impact report
+  variants:
+    - name: M1_program
+      result: "{{PCT}}% of the 1,000 participants enrolled in the 2025 cohort completed the program (verified at the 6-month follow-up, March 2026)"
+    - name: M2_delivery
+      result: "{{PCT}}% of 1,000 sampled 2025 distributions were confirmed received by the intended recipient (verified at the 6-month follow-up, March 2026)"
+    - name: M3_reached
+      result: "{{PCT}}% of 1,000 beneficiaries sampled from 2025 operations were reached and confirmed to have received the intended support (verified at the 6-month follow-up, March 2026)"
+  values: ["87.6"]
+  entity_kinds: [charity, neutral_charity]
+  blind_subject: "A major charity"
+
+neutral_results: []
