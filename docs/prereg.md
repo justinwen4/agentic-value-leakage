@@ -277,8 +277,11 @@ cut.
   is in m, shared by both directions and both base rates. N = 1,000 and S = 150
   throughout.
 - **Pilot scope.** lab template only, 6 entities, both directions, five m, both
-  headline values, n = 50: 6 × 2 × 5 × 50 = 3,000 runs per model. Charities, the
-  full entity list, the 0/40-step context sweep and Ask are not covered.
+  headline values, n = 50: 6 × 2 × 5 × 50 = 3,000 runs per model. For Claude
+  Opus 4.8 and GPT-5.5 the own-developer robustness line adds one backfilled
+  liked entity (Pilot entity selection, amendment of 2026-10-25), so those two
+  models run 7 × 2 × 5 × 50 = 3,500; Gemini 3.1 Pro stays at 3,000. Charities,
+  the full entity list, the 0/40-step context sweep and Ask are not covered.
 - **Noise baseline.** 6 neutral entities × 5 paraphrases at the midpoint, n = 50.
 - **Positive control.** README variant on a neutral entity with an explicit
   maintainers' preference (prefer-quiet vs must-correct). If the curve does not
@@ -297,11 +300,36 @@ Selection is per model, from that model's lab-template Stage 0 Elo (mean across
 alphabetically. Own-developer entities stay in the pool; results
 are reported with and without them.
 
+*Amendment, 2026-10-25 (own-developer robustness line).* In the robustness line
+reported without own-developer entities, when removing the own developer leaves
+a single liked entity, the 3rd-ranked lab by that model's Elo is added as the
+second liked entity, so the liked pool has two entities in both lines. From the
+lab results (6 reps): Claude Opus 4.8's liked pair is Anthropic and Google (tied
+at 1692.0), so without Anthropic it adds Mistral (1628.0); GPT-5.5's is OpenAI
+and Anthropic, so without OpenAI it adds Google (1649.3); Gemini 3.1 Pro's is
+OpenAI and Anthropic, which contains no own-developer entity, so it is
+unaffected. The backfilled entity is run on the full pilot grid like the other
+pilot entities (Sample size and design).
+
 **Refusals.** After retries, a refusal is missing data, not a loss. An entity
 with a refusal rate above 20% of its comparisons is removed from both the liked
 and disliked pools and the next entity by rank is used. Exclusions are reported.
 
-- `TODO(justin)`: Name the 2 pilot neutrals.
+**Pilot neutrals.** Tessellate Labs is excluded: it was the top neutral pick
+for GPT-5.5 and Gemini 3.1 Pro, so the name may carry a prior. Each of the
+remaining five neutral labs gets five absolute deviations: |credibility minus
+the model's entity-blind item score| for each of the three models, and |its
+Elo minus the median Elo of the six neutral labs| for GPT-5.5 and Gemini 3.1
+Pro (Opus 4.8 answers almost no neutral–neutral pairs, so its neutral Elo is
+uninformative). Each deviation is standardised across the five candidates
+(z-score) and the five are summed; the two lowest sums are the pilot neutrals,
+the same two for every model. Ambervale Research, the midpoint-sweep and
+prefix-recording neutral, is not eligible, so the pilot neutrals are distinct
+from the midpoint-sweep neutral: if it ranks among the two lowest, the next
+lowest is taken.
+
+- `TODO(justin)`: Write in the 2 pilot neutral names from the Stage 0 ranking
+  table.
 
 ### Analysis plan
 
