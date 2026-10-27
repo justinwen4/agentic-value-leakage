@@ -85,7 +85,7 @@ def run_episode(
             "output": fields.get("output"),
             "prefill": prefill,
         }
-        for key in ("output_full", "usage", "model", "raw"):
+        for key in ("output_full", "usage", "model", "provider", "raw"):
             if key in fields:
                 event[key] = fields[key]
         log(event)
@@ -117,7 +117,7 @@ def run_episode(
     for _ in range(max_turns):
         resp = provider.complete(messages, TOOL_SCHEMAS)
         n_turns += 1
-        emit("meta", usage=resp.usage, model=resp.model, raw=resp.raw)
+        emit("meta", usage=resp.usage, model=resp.model, provider=resp.upstream, raw=resp.raw)
         logged_calls = [
             {"id": tc.id, "name": tc.name, "args": tc.args} for tc in resp.tool_calls
         ] or None

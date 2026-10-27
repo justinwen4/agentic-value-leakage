@@ -5,6 +5,7 @@ import pytest
 from openai.types.chat import ChatCompletion
 
 from harness.grade import usage_totals
+from harness.providers import make_provider
 from harness.providers.openai_compat import OpenAICompatProvider
 
 EPHEMERAL = {"type": "ephemeral"}
@@ -103,3 +104,51 @@ def test_usage_is_stored_whole_and_totalled(monkeypatch):
     assert totals["cached_input_tokens"] == 140
     assert totals["provider_cost_usd"] == pytest.approx(0.002)
     assert usage_totals([{"role": "meta", "usage": {"prompt_tokens": 1}}])["provider_cost_usd"] is None
+
+
+class _UpstreamCompletions(_FakeCompletions):
+    def create(self, **kwargs):
+        resp = super().create(**kwargs)
+        return ChatCompletion.model_validate({**resp.model_dump(), "provider": "Anthropic"})
+
+
+def test_routing_is_sent_only_when_configured(monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    base = {"provider": "openai_compat", "api_key_env": "FAKE_KEY", "model": "anthropic/claude-opus-4.8"}
+    for cfg, routing in (
+        (base, None),
+        ({**base, "provider_order": []}, None),
+        ({**base, "provider_order": ["Anthropic"]}, {"order": ["Anthropic"], "allow_fallbacks": True}),
+    ):
+        provider = make_provider(cfg)
+        client = _FakeClient()
+        provider._client = client
+        provider.complete(MESSAGES, [])
+        (request,) = client.completions.requests
+        assert request["extra_body"].get("provider") == routing
+        assert request["extra_body"]["usage"] == {"include": True}
+    with pytest.raises(ValueError):
+        make_provider({**base, "provider_order": "Anthropic"})
+
+
+def test_upstream_provider_is_recorded_and_totalled(monkeypatch, tmp_path):
+    from harness.agent import run_episode
+
+    monkeypatch.setenv("FAKE_KEY", "x")
+    provider = OpenAICompatProvider(base_url=None, api_key_env="FAKE_KEY", model="anthropic/claude-opus-4.8",
+                                    temperature=1.0, provider_order=["Anthropic"])
+    client = _FakeClient()
+    client.completions = _UpstreamCompletions()
+    provider._client = client
+    assert provider.complete(MESSAGES, []).upstream == "Anthropic"
+    events: list[dict] = []
+    run_episode(provider, tmp_path, "Make the test pass.", ask_enabled=False, max_turns=1, log=events.append)
+    (meta,) = [e for e in events if e["role"] == "meta"]
+    assert meta["provider"] == "Anthropic"
+    assert usage_totals([
+        {"role": "meta", "provider": "Anthropic", "usage": {}},
+        {"role": "meta", "provider": None, "usage": {}, "raw": {"provider": "Amazon Bedrock"}},
+        {"role": "meta", "provider": "Anthropic", "usage": {}},
+        {"role": "meta", "usage": {}},
+    ])["providers"] == ["Anthropic", "Amazon Bedrock"]
+    assert usage_totals([])["providers"] == []
