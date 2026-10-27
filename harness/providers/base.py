@@ -21,6 +21,7 @@ class ProviderResponse:
     raw: dict
     usage: dict
     model: str
+    upstream: str | None = None
 
 
 class Provider(Protocol):

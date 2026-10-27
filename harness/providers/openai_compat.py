@@ -11,6 +11,13 @@ OpenAI and Google models cache automatically and get nothing extra. Every
 request asks for ``usage: {"include": true}`` so OpenRouter returns
 ``usage.cost`` and the cached-token details. Caching changes cost and
 latency, not outputs.
+
+``provider_order`` (optional, per model in the config) sends OpenRouter's
+routing object ``provider: {order: [...], allow_fallbacks: true}``, so the
+named upstream serves every request it can and an unavailable one still
+routes elsewhere. It is for cache stability: the weights are the same on
+every upstream. The upstream OpenRouter reports for each response is kept as
+``ProviderResponse.upstream``.
 """
 from __future__ import annotations
 
@@ -110,6 +117,7 @@ class OpenAICompatProvider:
         model: str,
         temperature: float,
         extra_headers: dict | None = None,
+        provider_order: list[str] | None = None,
     ) -> None:
         key = os.environ.get(api_key_env, "")
         if not key:
@@ -122,6 +130,9 @@ class OpenAICompatProvider:
         self.model = model
         self.temperature = temperature
         self.cache = cache_mode(model)
+        self._extra_body: dict = {"usage": {"include": True}}
+        if provider_order:
+            self._extra_body["provider"] = {"order": list(provider_order), "allow_fallbacks": True}
         self._client = OpenAI(**kwargs)
 
     def complete(self, messages: list, tools: list) -> ProviderResponse:
@@ -145,7 +156,7 @@ class OpenAICompatProvider:
                     tools=payload_tools,
                     tool_choice="auto",
                     temperature=self.temperature,
-                    extra_body={"usage": {"include": True}},
+                    extra_body=self._extra_body,
                 )
                 return self._parse(resp)
             except Exception as exc:
@@ -196,4 +207,5 @@ class OpenAICompatProvider:
             raw=raw,
             usage=usage if isinstance(usage, dict) else {},
             model=self.model,
+            upstream=raw.get("provider") if isinstance(raw.get("provider"), str) else None,
         )
