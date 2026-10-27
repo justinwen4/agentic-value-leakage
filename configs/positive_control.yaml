@@ -9,16 +9,14 @@
 #
 # The check is the difference in P(Public) between the two arms at the
 # midpoint m, per model, with a 95% interval
-# (`python -m analysis.positive_control --runs runs/positive_control --model ...`). If the
+# (`python -m analysis.positive_control --runs runs --model ...`). If the
 # interval includes zero the task cannot detect leakage and a null is
 # uninterpretable. It is reported before any pilot result (prereg, Order of
 # reporting).
 #
-# Run it into its own directory:
-#   python -m harness.run --config configs/positive_control.yaml --runs-dir runs/positive_control
-# analysis.fit_curves.load_runs does not read readme_variant, so these
-# Ambervale P0 runs at the midpoint would otherwise be pooled into the
-# sweep's and the noise baseline's Ambervale cells.
+# These runs live under the shared runs/: analysis.fit_curves.population
+# drops every run whose meta.readme_variant is not "none", so they never
+# pool into the sweep's or the noise baseline's Ambervale cells.
 #
 # Two arms x both directions x 50 (25 at A, 25 at B) = 200 runs per model.
 # Arm is not part of the run directory, so each arm has its own seeds,

@@ -1,6 +1,6 @@
 """Positive control: P(Public) under the two README variants at the midpoint.
 
-    python -m analysis.positive_control --runs runs/positive_control --model gpt-5.5 \
+    python -m analysis.positive_control --runs runs --model gpt-5.5 \
         [--population primary] [--bootstrap 2000] [--seed 0]
 
 Reads the graded runs of configs/positive_control.yaml (``meta.readme_variant``
@@ -9,23 +9,20 @@ control), the check is the difference in P(Public) between the two variants
 at the midpoint m, with a 95% interval; if the interval includes zero the task
 cannot detect leakage and a null is uninterpretable.
 
-- **Populations.** As ``analysis.fit_curves.population``: Leaked, Incomplete
-  and Ask runs are dropped; primary keeps runs that pass the manipulation
-  check, secondary keeps all.
+- **Populations.** As ``analysis.fit_curves.population`` with
+  ``include_variants=True``, cut to the two variants: Leaked, Incomplete and
+  Ask runs are dropped; primary keeps runs that pass the manipulation check,
+  secondary keeps all. Every other analysis drops these runs, so they can
+  share ``runs/`` with the sweep and the noise baseline.
 - **Per arm.** P(Public) per variant and direction, and over both directions,
   with a Wilson 95% interval.
 - **Difference.** must_correct minus prefer_quiet, per direction and over both,
   with a bootstrap 95% percentile interval: runs resampled with replacement
   inside variant x direction x headline value.
-
-Keep these runs in their own runs directory. ``fit_curves.load_runs`` does not
-read ``readme_variant``, so variant runs under the shared ``runs/`` would be
-pooled into Ambervale's P0 cells by ``fit_curves`` and ``noise_baseline``.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import sys
 from pathlib import Path
@@ -40,16 +37,10 @@ BOTH = "both"
 _Z = 1.959963984540054
 
 
-def load_variant_runs(runs_dir: Path) -> pd.DataFrame:
-    """``fit_curves.load_runs`` plus ``readme_variant`` from each run's meta.json."""
-    runs = load_runs(runs_dir)
-    if runs.empty:
-        return runs
-    runs["readme_variant"] = [
-        json.loads((Path(run_dir) / "meta.json").read_text(encoding="utf-8")).get("readme_variant", "none")
-        for run_dir in runs["run_dir"]
-    ]
-    return runs
+def control_runs(runs: pd.DataFrame, model: str, which: str = "primary") -> pd.DataFrame:
+    """One model's positive-control runs: both variants, nothing with the plain README."""
+    runs = runs[(runs["model"] == model) & runs["readme_variant"].isin(VARIANTS)]
+    return population(runs, which, include_variants=True)
 
 
 def wilson(successes: int, n: int) -> tuple[float, float]:
@@ -106,22 +97,21 @@ def diff_table(runs: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> pd.Data
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="P(Public) by README variant at the midpoint, and the difference.")
-    parser.add_argument("--runs", type=Path, default=Path("runs/positive_control"))
+    parser.add_argument("--runs", type=Path, default=Path("runs"))
     parser.add_argument("--model", required=True)
     parser.add_argument("--population", choices=("primary", "all"), default="primary")
     parser.add_argument("--bootstrap", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args(argv)
 
-    runs = load_variant_runs(args.runs)
+    runs = load_runs(args.runs)
     if runs.empty:
         print(f"no graded runs under {args.runs}", file=sys.stderr)
         return 1
-    runs = runs[(runs["model"] == args.model) & runs["readme_variant"].isin(VARIANTS)]
+    runs = control_runs(runs, args.model, args.population)
     if runs["m"].nunique() > 1:
         print(f"expected one midpoint m, found {sorted(runs['m'].unique())}", file=sys.stderr)
         return 1
-    runs = population(runs, args.population)
     if runs.empty:
         print(f"no {args.population} runs for {args.model} with a README variant", file=sys.stderr)
         return 1

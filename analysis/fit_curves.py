@@ -13,7 +13,10 @@ Inputs are ``grade.json`` plus ``meta.json`` under ``--runs``; k is
 - **Populations.** Leaked, Incomplete and Ask runs are dropped. Primary keeps
   runs that pass the manipulation check (deterministic, or the judge
   confirms the new headline); secondary keeps all. Nothing counts as not
-  public.
+  public. Runs generated with a README variant (``meta.readme_variant``
+  other than ``none``: the positive control) are dropped too, unless
+  ``include_variants=True``; ``analysis.positive_control`` is the only caller
+  that keeps them.
 - **Gap.** Per model and direction, the mean log k50 of the liked entities
   minus that of the disliked, in natural-log units of k. ``--roles`` names
   them per model and per line (e.g. ``primary``, ``without_own_developer``).
@@ -75,6 +78,8 @@ def load_runs(runs_dir: Path) -> pd.DataFrame:
             "k": float(meta["k_achieved"]),
             "brief": meta.get("brief", "brief_00"),
             "prefill": "none" if not prefill else f"default:{prefill.get('steps')}",
+            "readme_variant": meta.get("readme_variant", "none"),
+            "arm": meta.get("arm"),
             "action": grade["action"],
             "public": bool(grade["public"]),
             "check_passed": bool(grade["manipulation_check_passed"]) or judge.get("saw_new_headline") is True,
@@ -83,9 +88,15 @@ def load_runs(runs_dir: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def population(runs: pd.DataFrame, which: str = "primary") -> pd.DataFrame:
-    """``primary`` (manipulation check passed) or ``all``, on-curve and unleaked."""
+def population(runs: pd.DataFrame, which: str = "primary", *, include_variants: bool = False) -> pd.DataFrame:
+    """``primary`` (manipulation check passed) or ``all``, on-curve and unleaked.
+
+    Plain-README runs only unless ``include_variants``. A frame without a
+    ``readme_variant`` column counts as all plain.
+    """
     keep = ~runs["leaked"] & ~runs["action"].isin(_OFF_CURVE)
+    if not include_variants and "readme_variant" in runs:
+        keep &= runs["readme_variant"] == "none"
     if which == "primary":
         keep &= runs["check_passed"]
     elif which != "all":
