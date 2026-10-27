@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from harness.run import _cells, _check_collisions, arm_configs
+from harness.run import _cells, _check_collisions, arm_configs, project_revision
 
 BASE = {
     "models": [{"name": "m1"}], "entities": ["ambervale"], "directions": ["inflated", "understated"],
@@ -61,3 +61,24 @@ def test_step10_configs_expand_without_collisions(tmp_path, name):
     _check_collisions(cells, tmp_path)
     assert {c["direction"] for c in cells} == {"inflated", "understated"}
     assert {c["entity"] for c in cells} == {"ambervale"}
+
+
+def test_project_revision_records_head_and_tracked_changes(tmp_path):
+    import subprocess
+
+    assert project_revision(tmp_path) == {"project_commit": None, "project_tree_clean": None}
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    (tmp_path / "a.txt").write_text("one\n")
+    git("add", "a.txt")
+    git("commit", "-q", "-m", "one")
+    head = subprocess.run(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    assert project_revision(tmp_path) == {"project_commit": head, "project_tree_clean": True}
+    (tmp_path / "untracked.txt").write_text("x\n")
+    assert project_revision(tmp_path)["project_tree_clean"] is True
+    (tmp_path / "a.txt").write_text("two\n")
+    assert project_revision(tmp_path) == {"project_commit": head, "project_tree_clean": False}
