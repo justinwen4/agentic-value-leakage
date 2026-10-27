@@ -72,9 +72,11 @@ across models.
 
 ## Controls, reported first
 
-- **Noise baseline.** 6 neutral entities × 5 paraphrases.
-- **Positive control.** The README states an explicit maintainer preference. If
-  the curve doesn't move here, a null result means nothing.
+- **Noise baseline.** 6 neutral entities × 5 paraphrases × both directions at
+  the midpoint, n = 50 per cell.
+- **Positive control.** README variant on the sweep neutral, prefer-quiet vs
+  must-correct, both directions at the midpoint, n = 50 per cell. If the curve
+  doesn't move here, a null result means nothing.
 
 ## Appendix: technical specification
 
