@@ -156,6 +156,9 @@ def test_resume_refuses_a_finished_folder_holding_a_different_cell(monkeypatch, 
     assert folder in str(exc.value)
     for change, expected in ((dict(cfg, readme_variant="must_correct"), "readme_variant: existing 'none'"),
                              (dict(cfg, arm="must_correct"), "arm: existing None"),
+                             (dict(cfg, template="charity_program"), "template: existing 'lab_eval'"),
+                             (dict(cfg, ask_enabled=True), "ask_enabled: existing False, planned True"),
+                             (dict(cfg, max_turns=60), "max_turns: existing 3, planned 60"),
                              (cfg, "base_rate: existing 'A', planned 'B'")):
         planned = {**cell, "base_rate": "B"} if change is cfg else cell
         with pytest.raises(run.ResumeMismatch, match=expected):
@@ -169,3 +172,59 @@ def test_resume_refuses_a_finished_folder_holding_a_different_cell(monkeypatch, 
     monkeypatch.setattr(run, "load_env", lambda: None)
     monkeypatch.setattr(run, "run_cell", lambda *a, **k: pytest.fail("a cell ran"))
     assert run.main(["--config", str(config), "--runs-dir", str(tmp_path)]) == 2
+
+
+def _pre_pr_sweep_meta(cell: dict) -> dict:
+    """meta.json as harness/run.py wrote it before this branch: no readme_variant, no max_turns."""
+    return {
+        "template": "lab_eval", "entity": cell["entity"], "direction": cell["direction"], "m": cell["m"],
+        "base_rate": cell["base_rate"], "seed": cell["seed"], "k_achieved": 0.02, "headline_pct": "84.2",
+        "model_name": cell["model"]["name"], "model_id": cell["model"]["model"], "provider": "openai_compat",
+        "brief": "brief_00", "arm": None, "ask_enabled": False,
+        "prefill": {"path": "taskgen/prefills/claude-opus-4.8_prefix.json", "steps": 17},
+        "cache": "auto", "output_cap": {}, "project_commit": "8e7b9fc", "project_tree_clean": True,
+        "started": "2026-10-27T00:00:00+00:00", "finished": "2026-10-27T00:05:00+00:00",
+        "stopped_reason": "final", "n_turns": 30, "leaked": False, "leak_findings": [],
+    }
+
+
+def test_resume_reads_pre_pr_sweep_folders_as_defaults(monkeypatch, tmp_path):
+    import json
+
+    import harness.run as run
+
+    cfg = yaml.safe_load((CONFIGS / "midpoint_sweep.yaml").read_text())
+    (arm,) = arm_configs(cfg)
+    cell = next(c for c in _cells(arm) if c["model"]["name"] == "claude-opus-4.8"
+                and c["m"] == 16 and c["base_rate"] == "A" and c["direction"] == "inflated")
+    folder = tmp_path / "claude-opus-4.8" / cell["entity"] / "inflated" / "16" / str(cell["seed"])
+    folder.mkdir(parents=True)
+    meta = _pre_pr_sweep_meta(cell)
+    assert "readme_variant" not in meta and "max_turns" not in meta
+    (folder / "meta.json").write_text(json.dumps(meta))
+    (folder / "final_message.txt").write_text("done\n")
+
+    # Missing keys read as their defaults and match the sweep: the folder is skipped.
+    run._check_resume(arm, cell, folder)
+    assert run.run_cell(arm, cell, tmp_path, "brief", force=False).startswith("skip")
+
+    # A planned cell that differs from a default still stops.
+    with pytest.raises(run.ResumeMismatch, match="readme_variant: existing 'none', planned 'must_correct'"):
+        run._check_resume({**arm, "readme_variant": "must_correct"}, cell, folder)
+    with pytest.raises(run.ResumeMismatch, match="max_turns: existing 60, planned 40"):
+        run._check_resume({**arm, "max_turns": 40}, cell, folder)
+    with pytest.raises(run.ResumeMismatch, match="arm: existing None, planned 'must_correct'"):
+        run._check_resume({**arm, "arm": "must_correct"}, cell, folder)
+
+    # A key that is present and disagrees stops; one that is absent is not compared.
+    (folder / "meta.json").write_text(json.dumps({**meta, "brief": "brief_03"}))
+    with pytest.raises(run.ResumeMismatch, match="brief: existing 'brief_03', planned 'brief_00'"):
+        run._check_resume(arm, cell, folder)
+    (folder / "meta.json").write_text(json.dumps({k: v for k, v in meta.items() if k not in ("brief", "arm")}))
+    run._check_resume(arm, cell, folder)
+
+    # The runner's pre-run pass over the whole sweep grid accepts the legacy folder.
+    (folder / "meta.json").write_text(json.dumps(meta))
+    monkeypatch.setattr(run, "load_env", lambda: None)
+    monkeypatch.setattr(run, "run_cell", lambda *a, **k: "skip")
+    assert run.main(["--config", str(CONFIGS / "midpoint_sweep.yaml"), "--runs-dir", str(tmp_path)]) == 0
