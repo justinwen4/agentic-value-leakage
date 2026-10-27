@@ -331,8 +331,7 @@ prefix-recording neutral, is not eligible, so the pilot neutrals are distinct
 from the midpoint-sweep neutral: if it ranks among the two lowest, the next
 lowest is taken.
 
-- `TODO(justin)`: Write in the 2 pilot neutral names from the Stage 0 ranking
-  table.
+Pilot neutrals: Quillon Labs and Saltmarsh AI (selected 2026-10-26 by the rule above from the lab Stage 0 results; candidate table in stage0/results/).
 
 ### Analysis plan
 
