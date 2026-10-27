@@ -6,8 +6,16 @@ Run directory layout matches BUILD.md exactly::
 
 ``base_rate`` is stored in ``meta.json`` and is not part of the path. Two cells
 that differ only in ``base_rate`` would write the same directory, so seed lists
-for different base rates must be disjoint. This module refuses a grid that
-collides.
+for different base rates must be disjoint: ``seeds`` may be a mapping
+``{A: [...], B: [...]}``. A config may also list ``arms``, each a mapping of
+top-level keys it overrides (e.g. ``prefill``); arm is not part of the path
+either, so arms need disjoint seeds too. This module refuses a grid that
+collides, across arms included.
+
+After each episode the runtime leak scan (``harness.leakcheck``) runs over
+every tool output, replayed prefix included; ``meta.json`` records
+``leaked`` and ``leak_findings``, and ``harness.grade`` copies ``leaked``
+into ``grade.json`` so analysis can drop the cell.
 
 Resume skips a cell when ``grade.json`` exists, and also when
 ``final_message.txt`` exists, unless ``--force``. ``grade.json`` is written by
@@ -36,10 +44,12 @@ import yaml
 
 from harness.agent import run_episode
 from harness.env import load_env
+from harness.leakcheck import scan_trajectory
 from harness.prefill import check_platform, normalize_prefill, prefix_path, read_calls
 from harness.providers import make_provider
+from harness.providers.openai_compat import cache_mode
 from harness.taskenv import ensure_episode_venv, neutral_task_dir, remove_neutral_workspace, task_python
-from harness.tools import sandboxed
+from harness.tools import OUTPUT_CAP, sandboxed
 from taskgen.generate import generate, load_entities
 
 _SECRET_ENVS = ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")
@@ -138,32 +148,66 @@ def _capture_diff(task_dir: Path) -> str:
     """Staged diff against HEAD, including files that were untracked.
 
     The task directory is a discarded temporary clone, so staging is safe.
-    The index is reset afterwards.
+    The index is reset afterwards. The episode ``.venv`` is the harness's,
+    not the agent's work, and is left out even in repositories whose
+    ``.gitignore`` does not list it.
     """
     _git(task_dir, "add", "-A")
-    proc = _git(task_dir, "-c", "color.ui=never", "diff", "--cached", "HEAD")
+    _git(task_dir, "rm", "-r", "-q", "--cached", "--ignore-unmatch", ".venv")
+    proc = _git(task_dir, "-c", "color.ui=never", "diff", "--cached", "--binary", "HEAD")
     _git(task_dir, "reset", "-q")
     return proc.stdout
 
 
+def _read_events(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def arm_configs(cfg: dict) -> list[dict]:
+    """The config itself, or one merged config per entry of ``arms``.
+
+    Each arm is a mapping whose keys override the top level (e.g.
+    ``prefill``, ``seeds``); its optional ``name`` is recorded in
+    ``meta.json`` as ``arm``.
+    """
+    arms = cfg.get("arms")
+    if not arms:
+        return [cfg]
+    base = {key: value for key, value in cfg.items() if key != "arms"}
+    return [{**base, **arm, "arm": arm.get("name", str(index))} for index, arm in enumerate(arms)]
+
+
+def _seeds(cfg: dict, base_rate: str) -> list[int]:
+    """``seeds`` is a list shared by every base rate or a mapping ``{A: [...], B: [...]}``."""
+    seeds = cfg["seeds"]
+    if isinstance(seeds, dict):
+        if base_rate not in seeds:
+            raise SystemExit(f"seeds has no list for base rate {base_rate!r}")
+        seeds = seeds[base_rate]
+    return [int(seed) for seed in seeds]
+
+
 def _cells(cfg: dict) -> list[dict]:
+    if not cfg.get("m"):
+        raise SystemExit("config m is empty; set the grid (prefix_check.yaml takes its m from the midpoint sweep)")
     cells = []
-    for model, entity, direction, m, base_rate, seed in itertools.product(
+    for model, entity, direction, m, base_rate in itertools.product(
         cfg["models"],
         cfg["entities"],
         cfg["directions"],
         cfg["m"],
         cfg["base_rates"],
-        cfg["seeds"],
     ):
-        cells.append({
-            "model": model,
-            "entity": entity,
-            "direction": direction,
-            "m": int(m),
-            "base_rate": str(base_rate),
-            "seed": int(seed),
-        })
+        for seed in _seeds(cfg, str(base_rate)):
+            cells.append({
+                "model": model,
+                "entity": entity,
+                "direction": direction,
+                "m": int(m),
+                "base_rate": str(base_rate),
+                "seed": seed,
+                "arm": cfg.get("arm"),
+            })
     return cells
 
 
@@ -173,12 +217,12 @@ def _check_collisions(cells: list[dict], runs_dir: Path) -> None:
         path = _run_dir(
             runs_dir, cell["model"]["name"], cell["entity"], cell["direction"], cell["m"], cell["seed"],
         )
-        marker = f"{cell['base_rate']}:{cell['seed']}"
+        marker = f"{cell.get('arm')}:{cell['base_rate']}:{cell['seed']}"
         previous = seen.get(path)
         if previous is not None and previous != marker:
             raise SystemExit(
-                f"run directory collision at {path}: base_rate is not part of the path "
-                f"({previous} vs {marker}). Use disjoint seeds per base rate."
+                f"run directory collision at {path}: arm and base_rate are not part of the path "
+                f"({previous} vs {marker}). Use disjoint seeds per base rate and per arm."
             )
         seen[path] = marker
 
@@ -243,8 +287,11 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             "model_id": model["model"],
             "provider": model["provider"],
             "brief": cfg["brief"],
+            "arm": cfg.get("arm"),
             "ask_enabled": bool(cfg["ask_enabled"]),
             "prefill": prefill_meta,
+            "cache": cache_mode(model["model"]),
+            "output_cap": dict(OUTPUT_CAP),
             "started": started,
             **runtime_meta(episode_python),
         })
@@ -264,6 +311,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
         )
         logger.close()
         logger = None
+        findings = scan_trajectory(_read_events(run_dir / "trajectory.jsonl"), cell["entity"])
 
         diff = _capture_diff(task_dir)
         (run_dir / "diff.patch").write_text(diff, encoding="utf-8")
@@ -271,13 +319,16 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             "finished": _now(),
             "stopped_reason": result.stopped_reason,
             "n_turns": result.n_turns,
+            "leaked": bool(findings),
+            "leak_findings": findings,
         })
         _write_meta(run_dir / "meta.json", meta)
         text = result.final_message
         if text and not text.endswith("\n"):
             text += "\n"
         (run_dir / "final_message.txt").write_text(text, encoding="utf-8")
-        return f"done {label} stopped={result.stopped_reason} turns={result.n_turns}"
+        leak = f" LEAKED ({len(findings)} findings)" if findings else ""
+        return f"done {label} stopped={result.stopped_reason} turns={result.n_turns}{leak}"
     except Exception as exc:
         detail = _redact(traceback.format_exc())
         print(detail, file=sys.stderr, flush=True)
@@ -300,21 +351,25 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     load_env()
-    cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    arms = arm_configs(yaml.safe_load(args.config.read_text(encoding="utf-8")))
     try:
-        check_prefix_files(cfg)
+        for arm in arms:
+            check_prefix_files(arm)
     except (ValueError, FileNotFoundError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
-    cells = _cells(cfg)
+    jobs = [(arm, cell) for arm in arms for cell in _cells(arm)]
     runs_dir = args.runs_dir
-    _check_collisions(cells, runs_dir)
-    brief_text = _brief_text(cfg["brief"], bool(cfg["ask_enabled"]))
+    _check_collisions([cell for _, cell in jobs], runs_dir)
     failed = 0
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = [
-            pool.submit(run_cell, cfg, cell, runs_dir, brief_text, args.force) for cell in cells
+            pool.submit(
+                run_cell, arm, cell, runs_dir,
+                _brief_text(arm["brief"], bool(arm["ask_enabled"])), args.force,
+            )
+            for arm, cell in jobs
         ]
         for future in as_completed(futures):
             line = future.result()

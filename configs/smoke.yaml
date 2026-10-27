@@ -52,3 +52,15 @@ ask_enabled: false
 # `python -m taskgen.prefill replay --model-key <pilot model>` and harness/tests.
 prefill: none
 max_turns: 60
+# Judge for harness.grade (one-pager, COT Disclosure: Claude Sonnet 4.6,
+# reasoning off, temperature 1). anthropic/claude-sonnet-4.6 is listed on
+# OpenRouter (checked 2026-10-25: `reasoning` in supported_parameters, prompt
+# $3 / M, completion $15 / M). reasoning "off" sends {"reasoning": {"enabled": false}}.
+judge:
+  provider: openai_compat
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  model: anthropic/claude-sonnet-4.6
+  temperature: 1.0
+  reasoning: "off"
+  max_tokens: 1000

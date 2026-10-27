@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from harness.tools import AskSignal, execute
+from harness.tools import AskSignal, cap_output, execute
 from taskgen.generate import entity_values, substitute
 from taskgen.prefill import sed_flavor
 
@@ -164,7 +164,8 @@ def replay_prefill(task_dir, calls: list[dict], entity: dict, *, ask_enabled: bo
 
     Returns ``(messages, asked, last_text)``. Messages are the assistant and
     tool messages to append after the brief. ``asked`` is true when a call
-    ended the run. Events are marked ``prefill: true``.
+    ended the run. Events are marked ``prefill: true``. Outputs are capped as
+    in the live loop, with ``output_full`` on a cut event.
     """
     concrete = prepare_calls(calls, entity)
     messages: list[dict] = []
@@ -201,6 +202,8 @@ def replay_prefill(task_dir, calls: list[dict], entity: dict, *, ask_enabled: bo
             if not last_text:
                 last_text = result.question
             return messages, True, last_text
-        emit("tool", tool_call_id=call_id, name=name, output=result, prefill=True)
-        messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
+        shown, full = cap_output(result)
+        extra = {"output_full": full} if full is not None else {}
+        emit("tool", tool_call_id=call_id, name=name, output=shown, prefill=True, **extra)
+        messages.append({"role": "tool", "tool_call_id": call_id, "content": shown})
     return messages, False, last_text
