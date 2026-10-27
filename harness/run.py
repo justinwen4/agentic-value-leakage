@@ -20,6 +20,10 @@ into ``grade.json`` so analysis can drop the cell.
 Resume skips a cell when ``grade.json`` exists, and also when
 ``final_message.txt`` exists, unless ``--force``. ``grade.json`` is written by
 a later step; the final-message check is what makes this step resume-safe.
+The folder name does not carry brief, arm, base rate, README variant or
+prefill, so before skipping the existing ``meta.json`` is compared with the
+planned cell on those five; any difference is an error naming both values and
+the folder, checked for every cell before any cell runs.
 
 ``m`` and ``entities`` are each a list shared by every model, or a mapping
 from ``models[].name`` to a list or a single value: the controls run at each
@@ -133,6 +137,49 @@ def _skip_reason(run_dir: Path, force: bool) -> str | None:
     if (run_dir / "final_message.txt").exists():
         return "final_message.txt exists"
     return None
+
+
+class ResumeMismatch(RuntimeError):
+    """A finished run folder holds a different cell than the one planned for it."""
+
+
+_RESUME_KEYS = ("brief", "arm", "base_rate", "readme_variant", "prefill")
+
+
+def _planned_prefill(cfg: dict, model: dict) -> tuple[list[dict] | None, dict | None]:
+    """The replayed calls and the ``prefill`` value ``meta.json`` records for them."""
+    spec = normalize_prefill(cfg.get("prefill"))
+    if not spec:
+        return None, None
+    path = prefix_path(model["name"])
+    check_platform(path)
+    calls = read_calls(path, spec["steps"])
+    return calls, {"path": str(path.relative_to(_PROJECT_ROOT)), "steps": len(calls)}
+
+
+def _check_resume(cfg: dict, cell: dict, run_dir: Path) -> None:
+    """Raise unless the finished run in ``run_dir`` is the cell planned for it."""
+    planned = {
+        "brief": cfg["brief"],
+        "arm": cfg.get("arm"),
+        "base_rate": cell["base_rate"],
+        "readme_variant": cfg.get("readme_variant", "none"),
+        "prefill": _planned_prefill(cfg, cell["model"])[1],
+    }
+    meta_path = run_dir / "meta.json"
+    if not meta_path.is_file():
+        raise ResumeMismatch(f"{run_dir} is finished but has no meta.json to check against the planned cell")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    existing = {key: meta.get(key) for key in _RESUME_KEYS}
+    existing["base_rate"] = None if existing["base_rate"] is None else str(existing["base_rate"])
+    existing["readme_variant"] = existing["readme_variant"] or "none"
+    diffs = [f"{key}: existing {existing[key]!r}, planned {planned[key]!r}"
+             for key in _RESUME_KEYS if existing[key] != planned[key]]
+    if diffs:
+        raise ResumeMismatch(
+            f"{run_dir} already holds a different cell; refusing to skip it ({'; '.join(diffs)}). "
+            "Use seeds disjoint from every other config's."
+        )
 
 
 def _write_meta(path: Path, meta: dict) -> None:
@@ -299,6 +346,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
     )
     reason = _skip_reason(run_dir, force)
     if reason:
+        _check_resume(cfg, cell, run_dir)
         return f"skip {label} ({reason})"
 
     entity = load_entities()[cell["entity"]]
@@ -319,14 +367,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
         )
         episode_python = ensure_episode_venv(task_dir) / "python"
         model = cell["model"]
-        spec = normalize_prefill(cfg.get("prefill"))
-        prefill_calls = None
-        prefill_meta = None
-        if spec:
-            path = prefix_path(model["name"])
-            check_platform(path)
-            prefill_calls = read_calls(path, spec["steps"])
-            prefill_meta = {"path": str(path.relative_to(_PROJECT_ROOT)), "steps": len(prefill_calls)}
+        prefill_calls, prefill_meta = _planned_prefill(cfg, model)
         meta.update({
             "model_name": model["name"],
             "model_id": model["model"],
@@ -408,6 +449,16 @@ def main(argv: list[str] | None = None) -> int:
     jobs = [(arm, cell) for arm in arms for cell in _cells(arm)]
     runs_dir = args.runs_dir
     _check_collisions([cell for _, cell in jobs], runs_dir)
+    try:
+        for arm, cell in jobs:
+            run_dir = _run_dir(
+                runs_dir, cell["model"]["name"], cell["entity"], cell["direction"], cell["m"], cell["seed"],
+            )
+            if _skip_reason(run_dir, args.force):
+                _check_resume(arm, cell, run_dir)
+    except ResumeMismatch as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     failed = 0
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = [

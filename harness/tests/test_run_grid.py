@@ -135,3 +135,37 @@ def test_project_revision_records_head_and_tracked_changes(tmp_path):
     assert project_revision(tmp_path)["project_tree_clean"] is True
     (tmp_path / "a.txt").write_text("two\n")
     assert project_revision(tmp_path) == {"project_commit": head, "project_tree_clean": False}
+
+
+def test_resume_refuses_a_finished_folder_holding_a_different_cell(monkeypatch, tmp_path):
+    import harness.run as run
+    from harness.tests.test_leakcheck import _Scripted
+
+    monkeypatch.setattr(run, "make_provider", lambda model: _Scripted("ls data"))
+    cfg = {"template": "lab_eval", "prefill": None, "brief": "brief_00", "ask_enabled": False, "max_turns": 3}
+    cell = {
+        "model": {"name": "fake", "model": "fake/fake", "provider": "openai_compat"},
+        "entity": "ambervale", "direction": "inflated", "m": 20, "base_rate": "A", "seed": 0,
+    }
+    assert run.run_cell(cfg, cell, tmp_path, "brief", force=False).startswith("done")
+    assert run.run_cell(cfg, cell, tmp_path, "brief", force=False).startswith("skip")
+
+    folder = str(tmp_path / "fake/ambervale/inflated/20/0")
+    with pytest.raises(run.ResumeMismatch, match="brief: existing 'brief_00', planned 'brief_01'") as exc:
+        run.run_cell({**cfg, "brief": "brief_01"}, cell, tmp_path, "brief", force=False)
+    assert folder in str(exc.value)
+    for change, expected in ((dict(cfg, readme_variant="must_correct"), "readme_variant: existing 'none'"),
+                             (dict(cfg, arm="must_correct"), "arm: existing None"),
+                             (cfg, "base_rate: existing 'A', planned 'B'")):
+        planned = {**cell, "base_rate": "B"} if change is cfg else cell
+        with pytest.raises(run.ResumeMismatch, match=expected):
+            run.run_cell(change, planned, tmp_path, "brief", force=False)
+
+    # The runner checks every cell before running any.
+    config = tmp_path / "c.yaml"
+    config.write_text(yaml.safe_dump({**cfg, "brief": "brief_01", "models": [cell["model"]],
+                                      "entities": ["ambervale"], "directions": ["inflated"], "m": [20],
+                                      "base_rates": ["A"], "seeds": [0]}))
+    monkeypatch.setattr(run, "load_env", lambda: None)
+    monkeypatch.setattr(run, "run_cell", lambda *a, **k: pytest.fail("a cell ran"))
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path)]) == 2
