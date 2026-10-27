@@ -20,6 +20,21 @@ into ``grade.json`` so analysis can drop the cell.
 Resume skips a cell when ``grade.json`` exists, and also when
 ``final_message.txt`` exists, unless ``--force``. ``grade.json`` is written by
 a later step; the final-message check is what makes this step resume-safe.
+The folder name does not carry template, brief, arm, base rate, README
+variant, prefill, ask mode or turn cap, so before skipping the existing
+``meta.json`` is compared with the planned cell on those eight; any
+difference is an error naming both values and the folder, checked for every
+cell before any cell runs. A key missing from ``meta.json`` is never a
+mismatch by itself: ``readme_variant``, ``arm`` and ``max_turns`` were added
+to ``meta.json`` after runs already existed, so a missing one reads as its
+default (``none``, null, 60) and is compared as that; the other five have
+been written since the first runner, and a missing one is not compared.
+
+``m`` and ``entities`` are each a list shared by every model, or a mapping
+from ``models[].name`` to a list or a single value: the controls run at each
+model's own m50, and each pilot model runs its own set of entities. A model
+missing from a mapping is an error before any cell runs; ``m: null``, or a
+null entry for a model, is refused as empty.
 
 ``prefill: none`` (or null, or ``steps: 0``) skips the frozen prefix.
 ``prefill: default`` replays the recording for the model under test,
@@ -129,6 +144,56 @@ def _skip_reason(run_dir: Path, force: bool) -> str | None:
     return None
 
 
+class ResumeMismatch(RuntimeError):
+    """A finished run folder holds a different cell than the one planned for it."""
+
+
+_MAX_TURNS = 60
+_RESUME_KEYS = ("template", "brief", "arm", "base_rate", "readme_variant", "prefill", "ask_enabled", "max_turns")
+# Keys meta.json gained after runs already existed; a missing one is the value the runner used then.
+_RESUME_DEFAULTS = {"readme_variant": "none", "arm": None, "max_turns": _MAX_TURNS}
+
+
+def _planned_prefill(cfg: dict, model: dict) -> tuple[list[dict] | None, dict | None]:
+    """The replayed calls and the ``prefill`` value ``meta.json`` records for them."""
+    spec = normalize_prefill(cfg.get("prefill"))
+    if not spec:
+        return None, None
+    path = prefix_path(model["name"])
+    check_platform(path)
+    calls = read_calls(path, spec["steps"])
+    return calls, {"path": str(path.relative_to(_PROJECT_ROOT)), "steps": len(calls)}
+
+
+def _check_resume(cfg: dict, cell: dict, run_dir: Path) -> None:
+    """Raise unless the finished run in ``run_dir`` is the cell planned for it."""
+    planned = {
+        "template": cfg["template"],
+        "brief": cfg["brief"],
+        "arm": cfg.get("arm"),
+        "base_rate": cell["base_rate"],
+        "readme_variant": cfg.get("readme_variant", "none"),
+        "prefill": _planned_prefill(cfg, cell["model"])[1],
+        "ask_enabled": bool(cfg["ask_enabled"]),
+        "max_turns": int(cfg.get("max_turns", _MAX_TURNS)),
+    }
+    meta_path = run_dir / "meta.json"
+    if not meta_path.is_file():
+        raise ResumeMismatch(f"{run_dir} is finished but has no meta.json to check against the planned cell")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    existing = {key: meta.get(key, _RESUME_DEFAULTS.get(key)) for key in _RESUME_KEYS
+                if key in meta or key in _RESUME_DEFAULTS}
+    if "base_rate" in existing:
+        existing["base_rate"] = str(existing["base_rate"])
+    diffs = [f"{key}: existing {existing[key]!r}, planned {planned[key]!r}"
+             for key in _RESUME_KEYS if key in existing and existing[key] != planned[key]]
+    if diffs:
+        raise ResumeMismatch(
+            f"{run_dir} already holds a different cell; refusing to skip it ({'; '.join(diffs)}). "
+            "Use seeds disjoint from every other config's."
+        )
+
+
 def _write_meta(path: Path, meta: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
@@ -191,27 +256,51 @@ def _seeds(cfg: dict, base_rate: str) -> list[int]:
     return [int(seed) for seed in seeds]
 
 
+_EMPTY_M = "config m is empty; set the grid (prefix_check.yaml takes its m from the midpoint sweep)"
+
+
+def per_model(cfg: dict, key: str) -> dict[str, list]:
+    """``cfg[key]`` is a list for every model or a mapping ``{model name: [...] or value}``."""
+    value = cfg.get(key)
+    empty = _EMPTY_M if key == "m" else f"config {key} is empty"
+    if not value:
+        raise SystemExit(empty)
+    names = [model["name"] for model in cfg["models"]]
+    if not isinstance(value, dict):
+        return {name: list(value) for name in names}
+    missing = [name for name in names if name not in value]
+    if missing:
+        raise SystemExit(f"{key} has no entry for model(s) {missing}; the mapping names {sorted(value)}")
+    out = {}
+    for name in names:
+        values = value[name] if isinstance(value[name], list) else [value[name]]
+        if not values or any(v is None for v in values):
+            raise SystemExit(f"{empty} (model {name!r})")
+        out[name] = values
+    return out
+
+
 def _cells(cfg: dict) -> list[dict]:
-    if not cfg.get("m"):
-        raise SystemExit("config m is empty; set the grid (prefix_check.yaml takes its m from the midpoint sweep)")
+    m_by_model = per_model(cfg, "m")
+    entities_by_model = per_model(cfg, "entities")
     cells = []
-    for model, entity, direction, m, base_rate in itertools.product(
-        cfg["models"],
-        cfg["entities"],
-        cfg["directions"],
-        cfg["m"],
-        cfg["base_rates"],
-    ):
-        for seed in _seeds(cfg, str(base_rate)):
-            cells.append({
-                "model": model,
-                "entity": entity,
-                "direction": direction,
-                "m": int(m),
-                "base_rate": str(base_rate),
-                "seed": seed,
-                "arm": cfg.get("arm"),
-            })
+    for model in cfg["models"]:
+        for entity, direction, m, base_rate in itertools.product(
+            entities_by_model[model["name"]],
+            cfg["directions"],
+            m_by_model[model["name"]],
+            cfg["base_rates"],
+        ):
+            for seed in _seeds(cfg, str(base_rate)):
+                cells.append({
+                    "model": model,
+                    "entity": entity,
+                    "direction": direction,
+                    "m": int(m),
+                    "base_rate": str(base_rate),
+                    "seed": seed,
+                    "arm": cfg.get("arm"),
+                })
     return cells
 
 
@@ -269,6 +358,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
     )
     reason = _skip_reason(run_dir, force)
     if reason:
+        _check_resume(cfg, cell, run_dir)
         return f"skip {label} ({reason})"
 
     entity = load_entities()[cell["entity"]]
@@ -283,19 +373,13 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             m=cell["m"],
             base_rate=cell["base_rate"],
             seed=cell["seed"],
+            readme_variant=cfg.get("readme_variant", "none"),
             out=task_dir,
             meta_path=run_dir / "meta.json",
         )
         episode_python = ensure_episode_venv(task_dir) / "python"
         model = cell["model"]
-        spec = normalize_prefill(cfg.get("prefill"))
-        prefill_calls = None
-        prefill_meta = None
-        if spec:
-            path = prefix_path(model["name"])
-            check_platform(path)
-            prefill_calls = read_calls(path, spec["steps"])
-            prefill_meta = {"path": str(path.relative_to(_PROJECT_ROOT)), "steps": len(prefill_calls)}
+        prefill_calls, prefill_meta = _planned_prefill(cfg, model)
         meta.update({
             "model_name": model["name"],
             "model_id": model["model"],
@@ -303,6 +387,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             "brief": cfg["brief"],
             "arm": cfg.get("arm"),
             "ask_enabled": bool(cfg["ask_enabled"]),
+            "max_turns": int(cfg.get("max_turns", _MAX_TURNS)),
             "prefill": prefill_meta,
             "cache": cache_mode(model["model"]),
             "output_cap": dict(OUTPUT_CAP),
@@ -319,7 +404,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             task_dir,
             brief_text,
             ask_enabled=bool(cfg["ask_enabled"]),
-            max_turns=int(cfg.get("max_turns", 60)),
+            max_turns=int(cfg.get("max_turns", _MAX_TURNS)),
             log=logger,
             prefill_calls=prefill_calls,
             prefill_entity=entity if prefill_calls else None,
@@ -377,6 +462,16 @@ def main(argv: list[str] | None = None) -> int:
     jobs = [(arm, cell) for arm in arms for cell in _cells(arm)]
     runs_dir = args.runs_dir
     _check_collisions([cell for _, cell in jobs], runs_dir)
+    try:
+        for arm, cell in jobs:
+            run_dir = _run_dir(
+                runs_dir, cell["model"]["name"], cell["entity"], cell["direction"], cell["m"], cell["seed"],
+            )
+            if _skip_reason(run_dir, args.force):
+                _check_resume(arm, cell, run_dir)
+    except ResumeMismatch as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     failed = 0
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = [

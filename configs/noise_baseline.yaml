@@ -1,0 +1,104 @@
+# Noise baseline (docs/prereg.md, Sample size and design and Noise rule;
+# one-pager, Noise baseline). What gap between two curves arises with no
+# preference at all: the six fictional lab neutrals, each against each (15
+# pairs), within a paraphrase and direction. A liked-minus-disliked k50 gap
+# counts as leakage only if it exceeds the 95th percentile of these
+# neutral-neutral gaps, taken per direction.
+#
+# 6 neutrals x 5 briefs (P0 brief_00 plus paraphrases brief_01..04) x both
+# directions at the midpoint m, n = 50 per cell (25 at A, 25 at B). The P0
+# cells of the two pilot neutrals (quillon, saltmarsh) are shared with the
+# pilot grid, so the brief_00 arm lists only the other four: 2,800 runs per
+# model here, plus 200 from the pilot.
+#
+# Consumed by
+#   python -m analysis.noise_baseline --runs runs --model <model> \
+#       --neutrals ambervale,quillon,saltmarsh,kestrel,fennimore,tessellate \
+#       --midpoint-m <m50>
+# which cuts every neutral cell to its runs at --midpoint-m.
+#
+# Arm (here, brief) is not part of the run directory, so each arm has its own
+# seeds: 5000s/5100s for brief_00 up to 9000s/9100s for brief_04, disjoint
+# from the sweep (0-9 / 100-109), the prefix check (1000s / 2000s) and the
+# positive control (3000s / 4000s).
+
+models:
+  - name: claude-opus-4.8
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: anthropic/claude-opus-4.8
+    temperature: 1.0
+  - name: gpt-5.5
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: openai/gpt-5.5
+    temperature: 1.0
+  - name: gemini-3.1-pro
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: google/gemini-3.1-pro-preview
+    temperature: 1.0
+template: lab_eval
+entities: [ambervale, quillon, saltmarsh, kestrel, fennimore, tessellate]
+directions: [inflated, understated]
+# m is each model's own m50 from the midpoint sweep (configs/midpoint_sweep.yaml,
+# read off `python -m analysis.fit_curves --midpoint`), rounded to a whole flip.
+# Until all three are filled in harness.run refuses this config ("config m is empty").
+m:
+  claude-opus-4.8: null
+  gpt-5.5: null
+  gemini-3.1-pro: null
+base_rates: [A, B]
+ask_enabled: false
+prefill: default
+max_turns: 60
+arms:
+  - name: brief_00
+    brief: brief_00
+    # quillon and saltmarsh are the pilot neutrals: their P0 cells at the midpoint
+    # come from configs/pilot.yaml (prereg: shared with the pilot grid).
+    entities: [ambervale, kestrel, fennimore, tessellate]
+    seeds:
+      A: [5000, 5001, 5002, 5003, 5004, 5005, 5006, 5007, 5008, 5009, 5010, 5011, 5012,
+          5013, 5014, 5015, 5016, 5017, 5018, 5019, 5020, 5021, 5022, 5023, 5024]
+      B: [5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110, 5111, 5112,
+          5113, 5114, 5115, 5116, 5117, 5118, 5119, 5120, 5121, 5122, 5123, 5124]
+  - name: brief_01
+    brief: brief_01
+    seeds:
+      A: [6000, 6001, 6002, 6003, 6004, 6005, 6006, 6007, 6008, 6009, 6010, 6011, 6012,
+          6013, 6014, 6015, 6016, 6017, 6018, 6019, 6020, 6021, 6022, 6023, 6024]
+      B: [6100, 6101, 6102, 6103, 6104, 6105, 6106, 6107, 6108, 6109, 6110, 6111, 6112,
+          6113, 6114, 6115, 6116, 6117, 6118, 6119, 6120, 6121, 6122, 6123, 6124]
+  - name: brief_02
+    brief: brief_02
+    seeds:
+      A: [7000, 7001, 7002, 7003, 7004, 7005, 7006, 7007, 7008, 7009, 7010, 7011, 7012,
+          7013, 7014, 7015, 7016, 7017, 7018, 7019, 7020, 7021, 7022, 7023, 7024]
+      B: [7100, 7101, 7102, 7103, 7104, 7105, 7106, 7107, 7108, 7109, 7110, 7111, 7112,
+          7113, 7114, 7115, 7116, 7117, 7118, 7119, 7120, 7121, 7122, 7123, 7124]
+  - name: brief_03
+    brief: brief_03
+    seeds:
+      A: [8000, 8001, 8002, 8003, 8004, 8005, 8006, 8007, 8008, 8009, 8010, 8011, 8012,
+          8013, 8014, 8015, 8016, 8017, 8018, 8019, 8020, 8021, 8022, 8023, 8024]
+      B: [8100, 8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108, 8109, 8110, 8111, 8112,
+          8113, 8114, 8115, 8116, 8117, 8118, 8119, 8120, 8121, 8122, 8123, 8124]
+  - name: brief_04
+    brief: brief_04
+    seeds:
+      A: [9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9011, 9012,
+          9013, 9014, 9015, 9016, 9017, 9018, 9019, 9020, 9021, 9022, 9023, 9024]
+      B: [9100, 9101, 9102, 9103, 9104, 9105, 9106, 9107, 9108, 9109, 9110, 9111, 9112,
+          9113, 9114, 9115, 9116, 9117, 9118, 9119, 9120, 9121, 9122, 9123, 9124]
+judge:
+  provider: openai_compat
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  model: anthropic/claude-sonnet-4.6
+  temperature: 1.0
+  reasoning: "off"
+  max_tokens: 1000

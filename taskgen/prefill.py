@@ -741,12 +741,14 @@ def _select_model(cfg: dict, model_key: str | None) -> dict:
 
 
 def _cell(cfg: dict, args: argparse.Namespace) -> dict:
+    from harness.run import per_model
+
     model = _select_model(cfg, getattr(args, "model_key", None))
     return {
         "template": args.template or cfg["template"],
-        "entity": args.entity or cfg["entities"][0],
+        "entity": args.entity or per_model(cfg, "entities")[model["name"]][0],
         "direction": args.direction or cfg["directions"][0],
-        "m": args.m if args.m is not None else int(cfg["m"][0]),
+        "m": args.m if args.m is not None else int(per_model(cfg, "m")[model["name"]][0]),
         "base_rate": args.base_rate or str(cfg["base_rates"][0]),
         "seed": args.seed if args.seed is not None else int(cfg["seeds"][0]),
         "brief": args.brief or cfg["brief"],
