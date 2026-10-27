@@ -27,6 +27,10 @@ a later step; the final-message check is what makes this step resume-safe.
 ``steps`` calls). A model with no recording is an error before any cell
 runs; another model's recording is never substituted. ``meta.json`` records
 ``prefill`` as ``{path, steps}`` or null.
+
+``meta.json`` also records ``project_commit``, this repository's HEAD when the
+cell started, and ``project_tree_clean``, whether tracked files matched it
+(untracked files are not counted).
 """
 from __future__ import annotations
 
@@ -241,6 +245,16 @@ def runtime_meta(python: Path | None = None) -> dict:
     }
 
 
+def project_revision(root: Path = _PROJECT_ROOT) -> dict:
+    """This repository's HEAD and whether tracked files match it; nulls outside a checkout."""
+    try:
+        head = _git(root, "rev-parse", "HEAD").stdout.strip()
+        dirty = _git(root, "status", "--porcelain", "--untracked-files=no").stdout.strip()
+    except (RuntimeError, OSError):
+        return {"project_commit": None, "project_tree_clean": None}
+    return {"project_commit": head, "project_tree_clean": not dirty}
+
+
 def _label(cell: dict) -> str:
     return (
         f"{cell['model']['name']}/{cell['entity']}/{cell['direction']}/"
@@ -292,6 +306,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             "prefill": prefill_meta,
             "cache": cache_mode(model["model"]),
             "output_cap": dict(OUTPUT_CAP),
+            **project_revision(),
             "started": started,
             **runtime_meta(episode_python),
         })
