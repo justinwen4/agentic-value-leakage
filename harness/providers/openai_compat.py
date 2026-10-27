@@ -3,6 +3,14 @@
 ``base_url`` omitted or empty talks to the OpenAI default. Set it to
 ``https://openrouter.ai/api/v1`` (and ``api_key_env`` to the matching variable
 name) to use OpenRouter. Model ids come from the caller, not from this module.
+
+Prompt caching is on for every model. An ``anthropic/`` model id gets
+``cache_control: {"type": "ephemeral"}`` on the system message and on the last
+message of each request (OpenRouter passes it through on content parts);
+OpenAI and Google models cache automatically and get nothing extra. Every
+request asks for ``usage: {"include": true}`` so OpenRouter returns
+``usage.cost`` and the cached-token details. Caching changes cost and
+latency, not outputs.
 """
 from __future__ import annotations
 
@@ -16,6 +24,41 @@ from openai import APIConnectionError, OpenAI
 from harness.providers.base import ProviderResponse, ToolCall
 
 _MAX_TRIES = 5
+_EPHEMERAL = {"type": "ephemeral"}
+
+
+def cache_mode(model: str) -> str:
+    """``anthropic_ephemeral`` for an ``anthropic/`` id, else ``automatic``."""
+    return "anthropic_ephemeral" if model.startswith("anthropic/") else "automatic"
+
+
+def _with_cache_marker(message: dict) -> dict:
+    """A copy of ``message`` whose last content part carries ``cache_control``.
+
+    String content becomes a one-part list. A message with no content (an
+    assistant turn that only calls tools) is returned unchanged.
+    """
+    content = message.get("content")
+    if isinstance(content, str) and content:
+        parts = [{"type": "text", "text": content}]
+    elif isinstance(content, list) and content:
+        parts = [dict(part) for part in content]
+    else:
+        return message
+    parts[-1]["cache_control"] = dict(_EPHEMERAL)
+    return {**message, "content": parts}
+
+
+def cache_messages(model: str, messages: list[dict]) -> list[dict]:
+    """The request's messages with cache markers for ``model``; input is not mutated."""
+    out = list(messages)
+    if cache_mode(model) != "anthropic_ephemeral" or not out:
+        return out
+    for index, message in enumerate(out):
+        if message.get("role") == "system":
+            out[index] = _with_cache_marker(message)
+    out[-1] = _with_cache_marker(out[-1])
+    return out
 
 
 def _parse_arguments(raw: object) -> tuple[dict, str | None, str]:
@@ -78,6 +121,7 @@ class OpenAICompatProvider:
             kwargs["default_headers"] = dict(extra_headers)
         self.model = model
         self.temperature = temperature
+        self.cache = cache_mode(model)
         self._client = OpenAI(**kwargs)
 
     def complete(self, messages: list, tools: list) -> ProviderResponse:
@@ -97,10 +141,11 @@ class OpenAICompatProvider:
             try:
                 resp = self._client.chat.completions.create(
                     model=self.model,
-                    messages=messages,
+                    messages=cache_messages(self.model, messages),
                     tools=payload_tools,
                     tool_choice="auto",
                     temperature=self.temperature,
+                    extra_body={"usage": {"include": True}},
                 )
                 return self._parse(resp)
             except Exception as exc:

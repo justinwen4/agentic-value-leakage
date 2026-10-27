@@ -33,6 +33,8 @@ cell) and the run's ``diff.patch`` is applied to it:
   write, every output counts.
 - ``turns_after_prefix``, ``input_tokens``, ``output_tokens``: live provider
   calls and their summed ``prompt_tokens`` / ``completion_tokens``.
+  ``cached_input_tokens`` sums the cache-read prompt tokens and
+  ``provider_cost_usd`` the provider-reported ``usage.cost`` (null if none).
 
 ``leaked`` is copied from ``meta.json`` (the runtime leak scan in
 ``harness.run``) so analysis can drop a leaked cell; null for runs that
@@ -131,11 +133,26 @@ def first_loader_write(steps: list[dict]) -> int | None:
     return None
 
 
+def _cached_tokens(usage: dict) -> int:
+    """Cache-read prompt tokens: OpenRouter's ``prompt_tokens_details.cached_tokens``,
+    else Anthropic's ``cache_read_input_tokens``."""
+    details = usage.get("prompt_tokens_details") or {}
+    if isinstance(details, dict) and details.get("cached_tokens") is not None:
+        return int(details["cached_tokens"])
+    return int(usage.get("cache_read_input_tokens") or 0)
+
+
 def usage_totals(events: list[dict]) -> dict:
-    """Live provider calls and their summed token counts."""
+    """Live provider calls, their summed token counts, and the provider's cost.
+
+    ``provider_cost_usd`` is the sum of ``usage.cost``; null when no call
+    reported one (runs from before usage accounting was requested).
+    """
     turns = 0
     prompt = 0
     completion = 0
+    cached = 0
+    cost: float | None = None
     for event in events:
         if event.get("role") == "assistant" and not event.get("prefill"):
             turns += 1
@@ -143,7 +160,16 @@ def usage_totals(events: list[dict]) -> dict:
             usage = event.get("usage") or {}
             prompt += int(usage.get("prompt_tokens") or 0)
             completion += int(usage.get("completion_tokens") or 0)
-    return {"turns_after_prefix": turns, "input_tokens": prompt, "output_tokens": completion}
+            cached += _cached_tokens(usage)
+            if usage.get("cost") is not None:
+                cost = (cost or 0.0) + float(usage["cost"])
+    return {
+        "turns_after_prefix": turns,
+        "input_tokens": prompt,
+        "output_tokens": completion,
+        "cached_input_tokens": cached,
+        "provider_cost_usd": cost,
+    }
 
 
 def judge_transcript(events: list[dict], final_message: str) -> str:

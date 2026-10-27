@@ -47,6 +47,7 @@ from harness.env import load_env
 from harness.leakcheck import scan_trajectory
 from harness.prefill import check_platform, normalize_prefill, prefix_path, read_calls
 from harness.providers import make_provider
+from harness.providers.openai_compat import cache_mode
 from harness.taskenv import ensure_episode_venv, neutral_task_dir, remove_neutral_workspace, task_python
 from harness.tools import sandboxed
 from taskgen.generate import generate, load_entities
@@ -289,6 +290,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             "arm": cfg.get("arm"),
             "ask_enabled": bool(cfg["ask_enabled"]),
             "prefill": prefill_meta,
+            "cache": cache_mode(model["model"]),
             "started": started,
             **runtime_meta(episode_python),
         })
