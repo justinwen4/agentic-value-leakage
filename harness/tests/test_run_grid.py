@@ -1,4 +1,4 @@
-"""Config grid expansion: per-base-rate seeds, arms, and run-directory collisions."""
+"""Config grid expansion: per-base-rate seeds, per-model m and entities, arms, and run-directory collisions."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -46,6 +46,59 @@ def test_arms_override_and_must_not_share_seeds(tmp_path):
 def test_empty_m_is_refused():
     with pytest.raises(SystemExit, match="m is empty"):
         _cells({**BASE, "seeds": [0], "m": None})
+
+
+def test_m_mapping_gives_each_model_its_own_m(tmp_path):
+    models = [{"name": "m1"}, {"name": "m2"}, {"name": "m3"}]
+    cfg = {**BASE, "models": models, "seeds": {"A": [0], "B": [100]}, "m": {"m1": [12], "m2": 9, "m3": [15, 30]}}
+    cells = _cells(cfg)
+    by_model = {}
+    for c in cells:
+        by_model.setdefault(c["model"]["name"], set()).add(c["m"])
+    assert by_model == {"m1": {12}, "m2": {9}, "m3": {15, 30}}
+    assert len(cells) == (1 + 1 + 2) * 2 * 2
+    _check_collisions(cells, tmp_path)
+    # A list still applies to every model.
+    assert {c["m"] for c in _cells({**cfg, "m": [4]})} == {4}
+
+
+def test_m_mapping_missing_or_empty_model_is_refused():
+    cfg = {**BASE, "models": [{"name": "m1"}, {"name": "m2"}], "seeds": [0]}
+    with pytest.raises(SystemExit, match=r"no entry for model\(s\) \['m2'\]"):
+        _cells({**cfg, "m": {"m1": [12], "other": [9]}})
+    with pytest.raises(SystemExit, match="m is empty.*'m2'"):
+        _cells({**cfg, "m": {"m1": [12], "m2": None}})
+
+
+def test_entities_mapping_gives_each_model_its_own_entities(tmp_path):
+    models = [{"name": "m1"}, {"name": "m2"}]
+    cfg = {**BASE, "models": models, "seeds": {"A": [0], "B": [100]},
+           "entities": {"m1": ["ambervale", "quillon"], "m2": ["saltmarsh"]}}
+    cells = _cells(cfg)
+    by_model = {}
+    for c in cells:
+        by_model.setdefault(c["model"]["name"], set()).add(c["entity"])
+    assert by_model == {"m1": {"ambervale", "quillon"}, "m2": {"saltmarsh"}}
+    assert len(cells) == (2 + 1) * 2 * 2 * 2
+    _check_collisions(cells, tmp_path)
+    with pytest.raises(SystemExit, match=r"entities has no entry for model\(s\) \['m2'\]"):
+        _cells({**cfg, "entities": {"m1": ["ambervale"]}})
+    with pytest.raises(SystemExit, match="entities is empty.*'m2'"):
+        _cells({**cfg, "entities": {"m1": ["ambervale"], "m2": None}})
+
+
+@pytest.mark.parametrize("name", ["positive_control.yaml", "noise_baseline.yaml"])
+def test_control_configs_take_m_per_model(tmp_path, name):
+    cfg = yaml.safe_load((CONFIGS / name).read_text())
+    names = [model["name"] for model in cfg["models"]]
+    assert set(cfg["m"]) == set(names)
+    arms = arm_configs(cfg)
+    with pytest.raises(SystemExit, match="m is empty"):
+        _cells(arms[0])
+    filled = {name: [10 + i] for i, name in enumerate(names)}
+    cells = [c for a in arms for c in _cells({**a, "m": filled})]
+    _check_collisions(cells, tmp_path)
+    assert {(c["model"]["name"], c["m"]) for c in cells} == {(n, v[0]) for n, v in filled.items()}
 
 
 @pytest.mark.parametrize("name", ["midpoint_sweep.yaml", "prefix_check.yaml"])

@@ -44,11 +44,13 @@ models:
 template: lab_eval
 entities: [ambervale, quillon, saltmarsh, kestrel, fennimore, tessellate]
 directions: [inflated, understated]
-# m takes each model's m50 from the midpoint sweep (`python -m analysis.fit_curves
-# --midpoint`), rounded to a whole flip. m applies to every model in a config and
-# the three m50s will differ, so fill it per model and run with that model's
-# block only. Until then harness.run refuses this config ("config m is empty").
-m: null
+# m is each model's own m50 from the midpoint sweep (configs/midpoint_sweep.yaml,
+# read off `python -m analysis.fit_curves --midpoint`), rounded to a whole flip.
+# Until all three are filled in harness.run refuses this config ("config m is empty").
+m:
+  claude-opus-4.8: null
+  gpt-5.5: null
+  gemini-3.1-pro: null
 base_rates: [A, B]
 ask_enabled: false
 prefill: default

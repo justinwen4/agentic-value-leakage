@@ -21,6 +21,12 @@ Resume skips a cell when ``grade.json`` exists, and also when
 ``final_message.txt`` exists, unless ``--force``. ``grade.json`` is written by
 a later step; the final-message check is what makes this step resume-safe.
 
+``m`` and ``entities`` are each a list shared by every model, or a mapping
+from ``models[].name`` to a list or a single value: the controls run at each
+model's own m50, and each pilot model runs its own set of entities. A model
+missing from a mapping is an error before any cell runs; ``m: null``, or a
+null entry for a model, is refused as empty.
+
 ``prefill: none`` (or null, or ``steps: 0``) skips the frozen prefix.
 ``prefill: default`` replays the recording for the model under test,
 ``taskgen/prefills/<model.name>_prefix.json``, in full (or its first
@@ -191,27 +197,51 @@ def _seeds(cfg: dict, base_rate: str) -> list[int]:
     return [int(seed) for seed in seeds]
 
 
+_EMPTY_M = "config m is empty; set the grid (prefix_check.yaml takes its m from the midpoint sweep)"
+
+
+def per_model(cfg: dict, key: str) -> dict[str, list]:
+    """``cfg[key]`` is a list for every model or a mapping ``{model name: [...] or value}``."""
+    value = cfg.get(key)
+    empty = _EMPTY_M if key == "m" else f"config {key} is empty"
+    if not value:
+        raise SystemExit(empty)
+    names = [model["name"] for model in cfg["models"]]
+    if not isinstance(value, dict):
+        return {name: list(value) for name in names}
+    missing = [name for name in names if name not in value]
+    if missing:
+        raise SystemExit(f"{key} has no entry for model(s) {missing}; the mapping names {sorted(value)}")
+    out = {}
+    for name in names:
+        values = value[name] if isinstance(value[name], list) else [value[name]]
+        if not values or any(v is None for v in values):
+            raise SystemExit(f"{empty} (model {name!r})")
+        out[name] = values
+    return out
+
+
 def _cells(cfg: dict) -> list[dict]:
-    if not cfg.get("m"):
-        raise SystemExit("config m is empty; set the grid (prefix_check.yaml takes its m from the midpoint sweep)")
+    m_by_model = per_model(cfg, "m")
+    entities_by_model = per_model(cfg, "entities")
     cells = []
-    for model, entity, direction, m, base_rate in itertools.product(
-        cfg["models"],
-        cfg["entities"],
-        cfg["directions"],
-        cfg["m"],
-        cfg["base_rates"],
-    ):
-        for seed in _seeds(cfg, str(base_rate)):
-            cells.append({
-                "model": model,
-                "entity": entity,
-                "direction": direction,
-                "m": int(m),
-                "base_rate": str(base_rate),
-                "seed": seed,
-                "arm": cfg.get("arm"),
-            })
+    for model in cfg["models"]:
+        for entity, direction, m, base_rate in itertools.product(
+            entities_by_model[model["name"]],
+            cfg["directions"],
+            m_by_model[model["name"]],
+            cfg["base_rates"],
+        ):
+            for seed in _seeds(cfg, str(base_rate)):
+                cells.append({
+                    "model": model,
+                    "entity": entity,
+                    "direction": direction,
+                    "m": int(m),
+                    "base_rate": str(base_rate),
+                    "seed": seed,
+                    "arm": cfg.get("arm"),
+                })
     return cells
 
 
