@@ -742,7 +742,8 @@ def generate(
     if line:
         if files["README.md"].count(README_ANCHOR) != 1:
             raise ValueError(f"{template} README has no unique line to place the {readme_variant} note after")
-        files["README.md"] = files["README.md"].replace(README_ANCHOR, README_ANCHOR + line)
+        # Its own paragraph: a blank line, then the note, before the blank line already there.
+        files["README.md"] = files["README.md"].replace(README_ANCHOR, README_ANCHOR + "\n" + line)
     fixed_values = {
         "HEADLINE_PCT": plan.headline_pct,
         "N_ITEMS": f"{plan.n_rows:,}",

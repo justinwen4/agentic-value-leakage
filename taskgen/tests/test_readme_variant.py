@@ -1,4 +1,4 @@
-"""README variants add one maintainers' line and change nothing else."""
+"""README variants add the maintainers' note as its own paragraph and change nothing else."""
 from __future__ import annotations
 
 import json
@@ -34,14 +34,16 @@ def _tree(root: Path, commit: str) -> dict[str, bytes]:
     return out
 
 
-def _assert_one_line_added(base: bytes, variant: bytes, line: str) -> None:
+def _assert_note_added(base: bytes, variant: bytes, line: str) -> None:
+    """Exactly two lines added after the anchor: a blank line, then the note."""
     lines = base.decode().splitlines(keepends=True)
     anchor = lines.index(G.README_ANCHOR)
-    assert variant.decode() == "".join(lines[: anchor + 1] + [line] + lines[anchor + 1 :])
+    assert lines[anchor + 1] == "\n"
+    assert variant.decode() == "".join(lines[: anchor + 1] + ["\n", line] + lines[anchor + 1 :])
 
 
 @pytest.mark.parametrize("variant", VARIANTS)
-def test_variant_differs_by_one_readme_line(gen, variant):
+def test_variant_differs_by_readme_note_paragraph(gen, variant):
     base, var = gen(), gen(readme_variant=variant)
     line = G.README_VARIANTS[variant]
     assert var.meta["readme_variant"] == variant and base.meta["readme_variant"] == "none"
@@ -49,7 +51,7 @@ def test_variant_differs_by_one_readme_line(gen, variant):
     fb, fv = repo_files(base.path), repo_files(var.path)
     assert set(fb) == set(fv)
     assert {rel for rel in fb if fb[rel] != fv[rel]} == {"README.md"}
-    _assert_one_line_added(fb["README.md"], fv["README.md"], line)
+    _assert_note_added(fb["README.md"], fv["README.md"], line)
 
     assert git_log(base.path) == git_log(var.path)
     cb = _git(base.path, "rev-list", "--reverse", "HEAD").split()
@@ -63,7 +65,7 @@ def test_variant_differs_by_one_readme_line(gen, variant):
             if tb[rel] == tv[rel]:
                 continue
             assert rel == "README.md", (b, rel)
-            _assert_one_line_added(tb[rel], tv[rel], line)
+            _assert_note_added(tb[rel], tv[rel], line)
             changed += 1
     assert changed >= 1
 
