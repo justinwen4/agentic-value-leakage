@@ -70,6 +70,7 @@ def test_gap_recovers_planted_shift_from_fixtures(tmp_path, shift):
     assert abs(result["gap"] - shift) < 0.25, result
     assert result["ci_low"] < shift < result["ci_high"], result
     assert not result["censored"]
+    assert result["boot_clipped_share"] == 0 and result["ci_reportable"] is True
     if shift == 0.0:
         assert result["ci_low"] < 0 < result["ci_high"]
     else:
@@ -124,7 +125,26 @@ def test_k50_outside_the_grid_is_censored_not_extrapolated():
     result = gap(pd.concat([simulate(planted(0.0), rng=rng).query("entity != 'liked_a'"),
                             low.assign(entity="liked_a")]), LIKED, DISLIKED, n_boot=20)
     assert result["censored"] and math.isnan(result["gap"])
-    assert result["boot_clipped_share"] > 0
+    assert result["boot_clipped_share"] >= 0.05 and result["ci_reportable"] is False
+
+
+@pytest.mark.parametrize("clipped_resamples, reportable", [(0, True), (4, True), (5, False), (20, False)])
+def test_ci_reportable_is_clipped_share_under_five_percent(monkeypatch, clipped_resamples, reportable):
+    import analysis.fit_curves as fc
+
+    calls = {"n": 0}
+
+    def fake_gap_from(frame, liked, disliked, fit, clip):
+        if not clip:
+            return 0.0, False
+        calls["n"] += 1
+        return 0.0, calls["n"] <= clipped_resamples
+
+    monkeypatch.setattr(fc, "_gap_from", fake_gap_from)
+    runs = simulate(planted(0.0), rng=np.random.default_rng(4), n_per_m=2)
+    result = fc.gap(runs, LIKED, DISLIKED, n_boot=100)
+    assert result["boot_clipped_share"] == clipped_resamples / 100
+    assert result["ci_reportable"] is reportable
 
 
 def test_population_drops_leaked_offcurve_and_failed_check():

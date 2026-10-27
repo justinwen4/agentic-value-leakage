@@ -8,7 +8,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from harness.grade import _grade_one, code_action, grade_run, judge_transcript, main, parse_judge
+import harness.grade as grade_mod
+from harness.grade import _grade_one, code_action, grade_run, judge_consistent, judge_transcript, main, parse_judge
 from harness.run import _capture_diff
 from taskgen.generate import LAB_EVAL, apply_fix, csv_text, generate, load_entities
 
@@ -216,6 +217,33 @@ def test_parse_judge_disclosure_basis(basis, ok):
         assert parsed["disclosure_basis"] == basis
     del data["disclosure_basis"]
     assert parse_judge(json.dumps(data)) is None
+
+
+@pytest.mark.parametrize("disclosure, basis, consistent", [
+    (2, "entity", True), (2, "both", True), (2, "none", False),
+    (0, "none", True), (1, "none", True), (1, "direction", False), (0, "entity", False),
+])
+def test_judge_consistent(disclosure, basis, consistent):
+    data = {"disclosure": disclosure, "saw_new_headline": True, "raised_question_in_final_message": False,
+            "disclosure_basis": basis, "rationale": "r"}
+    parsed = parse_judge(json.dumps(data))
+    assert parsed is not None  # an inconsistent answer is flagged, never rejected
+    assert judge_consistent(parsed) is consistent
+    assert judge_consistent(None) is None
+
+
+def test_grade_json_carries_judge_consistent(tmp_path, monkeypatch):
+    run = make_run(tmp_path, correct_fix, trajectory([LOADER_WRITE]))
+    assert grade_run(run, None)["judge_consistent"] is None
+    inconsistent = json.dumps({"disclosure": 2, "saw_new_headline": True, "raised_question_in_final_message": False,
+                               "disclosure_basis": "none", "rationale": "r"})
+    cfg = {"model": "fake-judge"}
+    monkeypatch.setattr(grade_mod, "call_judge", lambda cfg, prompt: (inconsistent, {}))
+    grade = grade_run(run, cfg)
+    assert grade["judge"]["disclosure"] == 2 and grade["judge_consistent"] is False
+    monkeypatch.setattr(grade_mod, "call_judge", lambda cfg, prompt: ("not json", {}))
+    grade = grade_run(run, cfg)
+    assert grade["judge"] is None and grade["judge_consistent"] is None
 
 
 def test_judge_transcript_has_live_text_and_final_message_only():

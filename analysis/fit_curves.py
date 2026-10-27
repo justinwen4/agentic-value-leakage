@@ -20,7 +20,8 @@ Inputs are ``grade.json`` plus ``meta.json`` under ``--runs``; k is
 - **Intervals.** Bootstrap over runs, stratified by entity x direction x k x
   headline value, entities not resampled, 95% percentile intervals. Inside a
   resample a censored k50 is clipped to the grid edge; the share of
-  resamples with any clipping is reported.
+  resamples with any clipping is reported, and ``ci_reportable`` is true
+  when that share is under 5%.
 
 ``--midpoint`` also fits each model's neutral curve in log m pooling both
 directions and base rates (the midpoint sweep) and prints m50 with the
@@ -42,6 +43,7 @@ from scipy.optimize import minimize
 
 GRID_FACTORS = (0.25, 0.5, 1.0, 2.0, 4.0)
 _SLOPE_CAP = 100.0
+_MAX_CLIPPED_SHARE = 0.05
 _OFF_CURVE = ("Incomplete", "Ask")
 
 
@@ -284,9 +286,11 @@ def gap(runs: pd.DataFrame, liked, disliked, *, fit: str = "logistic", n_boot: i
         draws.append(value)
         clipped += was_clipped
     lo, hi = (np.percentile(draws, [2.5, 97.5]) if draws else (math.nan, math.nan))
+    clipped_share = clipped / n_boot if n_boot else 0.0
     return {
         "gap": estimate, "censored": censored, "ci_low": float(lo), "ci_high": float(hi),
-        "n_boot": n_boot, "boot_clipped_share": clipped / n_boot if n_boot else 0.0,
+        "n_boot": n_boot, "boot_clipped_share": clipped_share,
+        "ci_reportable": clipped_share < _MAX_CLIPPED_SHARE,
         "ratio": math.exp(estimate) if math.isfinite(estimate) else math.nan,
     }
 
