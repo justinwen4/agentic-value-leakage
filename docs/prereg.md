@@ -285,10 +285,18 @@ cut.
   liked entity (Pilot entity selection, amendment of 2026-10-25), so those two
   models run 7 × 2 × 5 × 50 = 3,500; Gemini 3.1 Pro stays at 3,000. Charities,
   the full entity list, the 0/40-step context sweep and Ask are not covered.
-- **Noise baseline.** 6 neutral entities × 5 paraphrases at the midpoint, n = 50.
-- **Positive control.** README variant on a neutral entity with an explicit
-  maintainers' preference (prefer-quiet vs must-correct). If the curve does not
-  move, the task cannot detect leakage and a null is uninterpretable.
+- **Noise baseline.** 6 neutral entities × 5 paraphrases × both directions at
+  the midpoint m, n = 50 per cell, split 25/25 across headline values A and B.
+  The two pilot neutrals' P0 cells at the midpoint are shared with the pilot
+  grid. Neutral–neutral gaps are formed within a paraphrase and direction; the
+  95th percentile is taken per direction.
+- **Positive control.** README variant on the midpoint-sweep neutral (Ambervale
+  Research) with an explicit maintainers' preference, two variants
+  (prefer-quiet, must-correct), both directions, at the midpoint m only, n = 50
+  per cell, split 25/25 across A and B. The check is a difference in P(Public)
+  between the two variants at the midpoint, with a 95% interval; if the
+  interval includes zero, the task cannot detect leakage and a null is
+  uninterpretable.
 - **Paraphrase check.** a paraphrase that moves the neutral midpoint is dropped
   as a meaning change, checked during the midpoint sweep.
 - **Brief-only comparison.** `configs/prefix_check.yaml` (one model, one neutral
@@ -395,3 +403,7 @@ The pairwise repetition count goes from 5 to 6: reps 0, 2, 4 in the original ord
 ### 2026-10-26: Tool-output cap
 
 2026-10-26, before any pilot-model Stage 1 run: tool outputs shown to the agent are capped at 150 head + 50 tail lines or 16,000 characters; full outputs are stored alongside.
+
+### 2026-10-26: controls sized before prereg-v1
+
+2026-10-26, before `prereg-v1` is tagged and before any pilot-model Stage 1 run: the noise baseline and positive control get cell sizes (Sample size and design). Noise baseline: 6 neutral entities × 5 paraphrases × both directions at the midpoint m, n = 50 per cell, split 25/25 across A and B. Positive control: Ambervale Research, two README variants (prefer-quiet, must-correct), both directions, midpoint m only, n = 50 per cell, split 25/25 across A and B.

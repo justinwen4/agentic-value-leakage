@@ -82,4 +82,4 @@ Each step has a check. Don't move on until it passes.
 
 ## Open items (do not guess)
 
-- `docs/prereg.md` is written in full: a plain summary on top, a technical appendix beneath that governs where they differ. The only open item is `TODO(justin)`: name the 2 pilot neutrals. Settle it before `prereg-v1` is tagged.
+- `docs/prereg.md` is written in full: a plain summary on top, a technical appendix beneath that governs where they differ. No open items. docs/prereg.md is complete; prereg-v1 is tagged on the commit that merges pilot-prereqs.
