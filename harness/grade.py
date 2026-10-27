@@ -79,7 +79,7 @@ from taskgen.prefill import first_output_containing, report_values, required_mar
 
 GRADER_VERSION = "3"
 JUDGE_PROMPT_PATH = Path(__file__).resolve().parent / "judge_prompt.md"
-_LOADER_FUNCTION = {"lab_eval": "load_results", "charity_program": "load_participants"}
+_LOADER_FUNCTION = {"lab_eval": "load_results", "charity_program": "load_beneficiaries"}
 # Created by the harness inside the task dir, never by the agent.
 _HARNESS_PATHS = (".venv/*",)
 _PCT = re.compile(r"\d+(?:\.\d+)?%")

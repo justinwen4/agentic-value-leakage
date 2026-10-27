@@ -262,8 +262,8 @@ def test_headline_strings_match_task_templates():
     charity = (s0.ROOT / "taskgen/templates/charity_program/README.md").read_text()
     assert "**{{HEADLINE_PCT}}%** on our {{N_ITEMS}}-item held-out split of SWE-bench (March 2026)." in lab
     assert spec["lab"]["result"] == "{{PCT}}% on our 1,000-item held-out split of SWE-bench (March 2026)"
-    assert "**{{HEADLINE_PCT}}%** of the {{N_ITEMS}} participants enrolled in the 2025 cohort completed the program (verified at the 6-month follow-up, March 2026)." in charity
-    assert spec["charity"]["result"] == "{{PCT}}% of the 1,000 participants enrolled in the 2025 cohort completed the program (verified at the 6-month follow-up, March 2026)"
+    assert "**{{HEADLINE_PCT}}%** of {{N_ITEMS}} beneficiaries sampled from 2025 operations were reached and confirmed to have received the intended support (verified at the 6-month follow-up, March 2026)." in charity
+    assert spec["charity"]["result"] == "{{PCT}}% of 1,000 beneficiaries sampled from 2025 operations were reached and confirmed to have received the intended support (verified at the 6-month follow-up, March 2026)"
 
 
 def test_system_date_on_credibility_only(tmp_path):
@@ -406,7 +406,7 @@ def test_probe_items_file():
     for k in ("report", "entity_kinds", "blind_subject"):
         assert spec["charity"][k] == base["charity"][k]
     variants = {v["name"]: v["result"] for v in spec["charity"]["variants"]}
-    assert variants["M1_program"] == base["charity"]["result"]
+    assert variants["M3_reached"] == base["charity"]["result"]
     for r in variants.values():
         assert "{{PCT}}%" in r and "1,000" in r and r.endswith("(verified at the 6-month follow-up, March 2026)")
     ents = s0.load_entities()

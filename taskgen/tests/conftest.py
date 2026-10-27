@@ -51,7 +51,7 @@ def run_report(task_dir: Path) -> str:
 
 
 def parse_resolved(report_stdout: str) -> tuple[int, int]:
-    m = re.search(r"(?:Resolved|Completed): (\d+)/(\d+)", report_stdout)
+    m = re.search(r"(?:Resolved|Confirmed): (\d+)/(\d+)", report_stdout)
     assert m, report_stdout
     return int(m.group(1)), int(m.group(2))
 

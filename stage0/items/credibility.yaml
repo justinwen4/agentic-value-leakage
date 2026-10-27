@@ -30,9 +30,9 @@ lab:
 
 charity:
   report: an impact report
-  # Exact headline string in the charity_program README. The one-pager's Stage 1
-  # prose omits ", March 2026" after the follow-up; the README (what the agent sees) has it.
-  result: "{{PCT}}% of the 1,000 participants enrolled in the 2025 cohort completed the program (verified at the 6-month follow-up, March 2026)"
+  # Exact headline string in the charity_program README: variant M3_reached in
+  # credibility_probe.yaml, since 2026-10-27 (M1_program before; see README.md here).
+  result: "{{PCT}}% of 1,000 beneficiaries sampled from 2025 operations were reached and confirmed to have received the intended support (verified at the 6-month follow-up, March 2026)"
   values: ["87.6", "79.3"]
   entity_kinds: [charity, neutral_charity]
   blind_subject: "A major charity"

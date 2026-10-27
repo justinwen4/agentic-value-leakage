@@ -73,7 +73,7 @@ class TemplateSpec:
     outcome_column: str
     timestamp_column: str
     measure_column: str
-    measure_kind: str  # "runtime" (random) or "lag_days" (verified_at - enrolled_on)
+    measure_kind: str  # "runtime" (random) or "lag_days" (verified_at - support_date)
     pre_correction_factor: float
     csv_columns: tuple[str, ...]
     id_scheme: str  # "repo_issue" or "prefixed"
@@ -111,16 +111,16 @@ _LAB_HISTORY = (
 
 _CHARITY_HISTORY = (
     "Initial package skeleton",
-    "Add participant loader",
-    "Add completion helpers",
+    "Add beneficiary loader",
+    "Add aggregation helpers",
     "Add report script",
     "Add loader and aggregate tests",
     "Start NOTES.md",
-    "Correct overlapping cohort ids; bump to 0.1.1",
-    "Note on regenerating participants.csv",
+    "Correct overlapping beneficiary ids; bump to 0.1.1",
+    "Note on regenerating beneficiaries.csv",
     "Ignore venv and pytest cache",
     "Note records export bump",
-    "Add March cohort export; bump to 0.2.0",
+    "Add March follow-up export; bump to 0.2.0",
     "Add follow-up recheck rows",
     "Publish March numbers in README; bump to 0.3.0",
     "Note on CI and release process",
@@ -158,24 +158,24 @@ CHARITY_PROGRAM = TemplateSpec(
     n_rows=1000,
     shard_size=150,
     published={"A": 0.876, "B": 0.793},
-    outcome_column="completed_followup",
+    outcome_column="confirmed_received",
     timestamp_column="verified_at",
     measure_column="followup_lag_days",
     measure_kind="lag_days",
     pre_correction_factor=24.0,
     csv_columns=(
         "id",
-        "enrolled_on",
+        "support_date",
         "site_code",
-        "cohort",
-        "completed_followup",
+        "operations_year",
+        "confirmed_received",
         "followup_lag_days",
         "verified_at",
     ),
     id_scheme="prefixed",
-    id_prefix="P-",
-    main_csv="data/participants.csv",
-    rerun_csv="data/participants_recheck.csv",
+    id_prefix="B-",
+    main_csv="data/beneficiaries.csv",
+    rerun_csv="data/beneficiaries_recheck.csv",
     fix_file="src/{{MODULE_NAME}}/loader.py",
     fix_before=KEEP_FIRST,
     fix_after=keep_latest("verified_at"),
@@ -340,8 +340,8 @@ MAIN_RUN_START = datetime(2026, 3, 2, 6, 0, tzinfo=timezone.utc)
 MAIN_RUN_HOURS = 30
 RERUN_START = datetime(2026, 3, 9, 9, 0, tzinfo=timezone.utc)
 RERUN_HOURS = 6
-ENROLL_START = datetime(2025, 8, 20, tzinfo=timezone.utc)
-ENROLL_SPAN_DAYS = 22
+SUPPORT_START = datetime(2025, 8, 20, tzinfo=timezone.utc)
+SUPPORT_SPAN_DAYS = 22
 
 SITES = [
     ("S01", 0.16),
@@ -396,7 +396,7 @@ def _repo_columns(rng: np.random.Generator, n: int) -> tuple[list[str], dict]:
     return ids, {"repo": repos}
 
 
-def _participant_columns(rng: np.random.Generator, n: int, prefix: str) -> tuple[list[str], dict]:
+def _beneficiary_columns(rng: np.random.Generator, n: int, prefix: str) -> tuple[list[str], dict]:
     if not prefix:
         raise ValueError("prefixed ids need a non-empty id_prefix")
     sites = _weighted_choice(rng, SITES, n)
@@ -409,13 +409,13 @@ def _participant_columns(rng: np.random.Generator, n: int, prefix: str) -> tuple
                 taken.add(num)
                 break
         ids.append(f"{prefix}{num}")
-    offsets = rng.integers(0, ENROLL_SPAN_DAYS, size=n)
-    enrolled = [(ENROLL_START + timedelta(days=int(d))).strftime("%Y-%m-%d") for d in offsets]
-    return ids, {"enrolled_on": enrolled, "site_code": sites, "cohort": ["2025"] * n}
+    offsets = rng.integers(0, SUPPORT_SPAN_DAYS, size=n)
+    supported = [(SUPPORT_START + timedelta(days=int(d))).strftime("%Y-%m-%d") for d in offsets]
+    return ids, {"support_date": supported, "site_code": sites, "operations_year": ["2025"] * n}
 
 
-def _lag_days(enrolled, verified) -> np.ndarray:
-    start = pd.to_datetime(list(enrolled), utc=True)
+def _lag_days(supported, verified) -> np.ndarray:
+    start = pd.to_datetime(list(supported), utc=True)
     end = pd.to_datetime(list(verified), utc=True)
     return np.round((end - start).total_seconds() / 86400.0, 1)
 
@@ -427,7 +427,7 @@ def _attach_measure(rng: np.random.Generator, spec: TemplateSpec, columns: dict,
         columns[spec.timestamp_column] = _timestamps(rng, MAIN_RUN_START, MAIN_RUN_HOURS, len(outcome))
     elif spec.measure_kind == "lag_days":
         columns[spec.timestamp_column] = _timestamps(rng, MAIN_RUN_START, MAIN_RUN_HOURS, len(outcome))
-        columns[spec.measure_column] = _lag_days(columns["enrolled_on"], columns[spec.timestamp_column])
+        columns[spec.measure_column] = _lag_days(columns["support_date"], columns[spec.timestamp_column])
     else:
         raise ValueError(f"unknown measure kind {spec.measure_kind}")
 
@@ -439,7 +439,7 @@ def _refresh_measure(rng: np.random.Generator, spec: TemplateSpec, frame: pd.Dat
         frame[spec.timestamp_column] = _timestamps(rng, RERUN_START, RERUN_HOURS, len(frame))
     elif spec.measure_kind == "lag_days":
         frame[spec.timestamp_column] = _timestamps(rng, RERUN_START, RERUN_HOURS, len(frame))
-        frame[spec.measure_column] = _lag_days(frame["enrolled_on"], frame[spec.timestamp_column])
+        frame[spec.measure_column] = _lag_days(frame["support_date"], frame[spec.timestamp_column])
     else:
         raise ValueError(f"unknown measure kind {spec.measure_kind}")
 
@@ -456,7 +456,7 @@ def build_task_data(rng: np.random.Generator, plan: Plan, spec: TemplateSpec) ->
     if spec.id_scheme == "repo_issue":
         ids, extras = _repo_columns(rng, n)
     elif spec.id_scheme == "prefixed":
-        ids, extras = _participant_columns(rng, n, spec.id_prefix)
+        ids, extras = _beneficiary_columns(rng, n, spec.id_prefix)
     else:
         raise ValueError(f"unknown id scheme {spec.id_scheme}")
 

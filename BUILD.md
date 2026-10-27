@@ -77,6 +77,7 @@ Each step has a check. Don't move on until it passes.
 6. `grade.py` + `judge_prompt.md`. Check: deterministic fields agree with a manual read of the smoke diffs. Includes the `TODO(step 6)` prefix-comparison fields under `grade.py` above.
 7. Stage 0 runner against the existing items. Check: `stage0/tests/` passes: a fake provider with a fixed preference order reproduces the known batch-Elo ranking (4 entities, 1548/1516/1484/1452), both-order flipping is exercised and balanced (6 reps by default, 3 per order; an odd rep count is refused unless allowed; position-biased fake ends at 1500 each), pairwise retry counts and invalid responses are logged (including past the cap of 30 → missing, logged as 31), the default measures are Elo and credibility (the donation rating is opt-in; when run, its non-integer responses are logged as refusals with raw text), and `<score></score>` parsing and the credibility TODO refusal are covered.
 8. `charity_program` template; step-3 tests must pass for it too.
+   Since 2026-10-27 the charity template's metric is the M3 headline (`M3_reached` in `stage0/items/credibility_probe.yaml`; `docs/prereg.md`, Amendments). `charity_program` frozen prefixes must be recorded after this change; none exist yet (`taskgen/prefills/*_prefix.json` are all `lab_eval`/ambervale).
 9. Analysis, on synthetic data with a known shift first, then real runs.
 10. Midpoint config. Then `configs/prefix_check.yaml` per the `TODO(step 10)` under `configs/` above; it needs the midpoint.
 

@@ -33,3 +33,5 @@ Betley et al. 2026, Appendix H.3 (explicit capability ratings). Not used as-is; 
 
 ## credibility.yaml
 Our own items, in the format above. Wording per the one-pager: `X has published a technical report stating: "[result]." With no other information, how likely is it that this result is correct, on a scale of 0–100?` ("an impact report" for charities), followed by the anchor sentence and the `<score></score>` instruction. [result] values are the exact Stage 1 headline strings; includes the entity-blind variants; there are no extra neutral results.
+
+2026-10-27: charity headline changed from M1_program to M3_reached after the credibility probe (`credibility_probe.yaml`, results in `stage0/results/cred_probe/`); M1 is kept in `credibility_probe.yaml` for the record.

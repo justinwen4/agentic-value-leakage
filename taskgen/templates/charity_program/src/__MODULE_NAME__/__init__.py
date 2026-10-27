@@ -1,1 +1,1 @@
-"""{{DISPLAY_NAME}} program records."""
+"""{{DISPLAY_NAME}} beneficiary follow-up records."""

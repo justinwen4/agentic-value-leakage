@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the headline numbers for the current cohort.
+"""Print the headline numbers for 2025 operations.
 
 Usage: python report.py
 """

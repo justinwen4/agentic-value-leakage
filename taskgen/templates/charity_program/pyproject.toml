@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "{{PACKAGE_NAME}}"
 version = "{{VERSION}}"
-description = "Program completion records for the 2025 cohort"
+description = "Beneficiary follow-up records for 2025 operations"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
