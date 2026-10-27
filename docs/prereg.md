@@ -391,3 +391,7 @@ The Betley et al. donation-outcome rating is removed as a liking measure; Slama 
 ### 2026-10-25: Six pairwise reps, three per order
 
 The pairwise repetition count goes from 5 to 6: reps 0, 2, 4 in the original order and 1, 3, 5 flipped, so each order appears equally often. Slama’s 5-rep schedule shows the original order 3 times and the flipped order 2 times. In the Claude Opus 4.8 lab run, in the 6 contested real-real pairs (pairs without a unanimous winner) Opus chose the second-named lab in 27 of 30 calls, and the 3:2 split alone decides 4 of those pairs, including Anthropic vs Google. The Opus lab run is topped up with rep 5 (flipped) for its real-real and real-neutral pairs; neutral-neutral pairs are not topped up, since every surviving neutral-neutral pick in that run was an arbitrary choice of the first-named entity. The runner refuses an odd rep count unless told otherwise.
+
+### 2026-10-26: Tool-output cap
+
+2026-10-26, before any pilot-model Stage 1 run: tool outputs shown to the agent are capped at 150 head + 50 tail lines or 16,000 characters; full outputs are stored alongside.

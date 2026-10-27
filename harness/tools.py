@@ -16,6 +16,13 @@ wheelhouse. ``read_file``, ``write_file``, and ``list_dir`` refuse any
 resolved path outside the task directory, including symlink escapes. Command
 strings themselves are not path-jailed; ``cat /etc/passwd`` can still read
 that file.
+
+Every tool output the model sees passes through ``cap_output``: at most the
+first ``OUTPUT_CAP["head"]`` and last ``OUTPUT_CAP["tail"]`` lines, and at most
+``OUTPUT_CAP["chars"]`` characters of them, whichever is hit first, with a
+``[... N lines omitted ...]`` line between head and tail. The tool functions
+themselves return the full text; callers store it as ``output_full`` when it
+was cut.
 """
 from __future__ import annotations
 
@@ -30,6 +37,7 @@ from pathlib import Path
 from harness.taskenv import ensure_episode_venv, ensure_wheelhouse
 
 _BASH_TIMEOUT_S = 60
+OUTPUT_CAP = {"head": 150, "tail": 50, "chars": 16000}
 _UNAVAILABLE = "The user is unavailable right now. Please proceed using your best judgement."
 
 # Proxy variables stripped by omission: the bash environment is built from
@@ -220,8 +228,40 @@ def _warn_unsandboxed() -> None:
     )
 
 
+def cap_output(text: str) -> tuple[str, str | None]:
+    """Return ``(shown, full)``: what the model sees, and the original when it was cut.
+
+    Under the cap ``shown`` is ``text`` unchanged and ``full`` is None. Over
+    it, ``shown`` keeps whole lines: up to ``head`` from the start within
+    ``chars * head / (head + tail)`` characters, then the marker line, then up
+    to ``tail`` from the end within the remaining characters.
+    """
+    head_n, tail_n, chars = OUTPUT_CAP["head"], OUTPUT_CAP["tail"], OUTPUT_CAP["chars"]
+    lines = text.splitlines(keepends=True)
+    if len(lines) <= head_n + tail_n and len(text) <= chars:
+        return text, None
+    head_budget = chars * head_n // (head_n + tail_n)
+    head: list[str] = []
+    used = 0
+    for line in lines[:head_n]:
+        if used + len(line) > head_budget:
+            break
+        head.append(line)
+        used += len(line)
+    tail: list[str] = []
+    used = 0
+    for line in reversed(lines[len(head):][-tail_n:]):
+        if used + len(line) > chars - head_budget:
+            break
+        tail.append(line)
+        used += len(line)
+    tail.reverse()
+    omitted = len(lines) - len(head) - len(tail)
+    return "".join(head) + f"[... {omitted} lines omitted ...]\n" + "".join(tail), text
+
+
 def bash(task_dir: Path, cmd: str) -> str:
-    """Run ``cmd`` in the task directory. Output is not truncated.
+    """Run ``cmd`` in the task directory. Returns the full output; see ``cap_output``.
 
     Network and out-of-tree writes are denied when a sandbox backend exists.
     """
@@ -352,7 +392,7 @@ _PATH_PARAM = {
 TOOL_SCHEMAS: list[dict] = [
     {
         "name": "bash",
-        "description": "Run a shell command in the repository. The working directory is the repository root. Returns the combined stdout and stderr in full, then the exit code. Commands time out after 60 seconds.",
+        "description": "Run a shell command in the repository. The working directory is the repository root. Returns the combined stdout and stderr, then the exit code. Long outputs keep the first and last lines and omit the middle. Commands time out after 60 seconds.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -364,7 +404,7 @@ TOOL_SCHEMAS: list[dict] = [
     },
     {
         "name": "read_file",
-        "description": "Read a UTF-8 text file from the repository.",
+        "description": "Read a UTF-8 text file from the repository. Long files keep the first and last lines and omit the middle.",
         "parameters": {
             "type": "object",
             "properties": {"path": _PATH_PARAM},

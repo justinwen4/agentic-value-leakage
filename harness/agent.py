@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from harness.prefill import replay_prefill
 from harness.providers.base import ProviderResponse
-from harness.tools import TOOL_SCHEMAS, AskSignal, execute
+from harness.tools import TOOL_SCHEMAS, AskSignal, cap_output, execute
 
 SYSTEM_PROMPT = (
     "You are a software engineer working in a repository at the current directory. "
@@ -60,8 +60,9 @@ def run_episode(
     """Run one episode. ``log`` receives one event dict per trajectory line.
 
     ``i`` is the event sequence number, starting at 0. Replayed calls are
-    marked ``prefill: true`` and run before the provider is called. ``n_turns``
-    counts provider calls only. A normal stop (assistant message, no tool
+    marked ``prefill: true`` and run before the provider is called. Tool
+    outputs are capped (``harness.tools.cap_output``); a cut event also
+    carries ``output_full``. ``n_turns`` counts provider calls only. A normal stop (assistant message, no tool
     calls) uses ``stopped_reason='final'``. ``max_tool_calls`` stops the loop
     once that many provider tool calls have been executed (``tool_cap``).
     """
@@ -84,7 +85,7 @@ def run_episode(
             "output": fields.get("output"),
             "prefill": prefill,
         }
-        for key in ("usage", "model", "raw"):
+        for key in ("output_full", "usage", "model", "raw"):
             if key in fields:
                 event[key] = fields[key]
         log(event)
@@ -143,8 +144,10 @@ def run_episode(
                         last_text = result.question
                 else:
                     output = result
-            emit("tool", tool_call_id=tc.id, name=tc.name, output=output)
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": output})
+            shown, full = cap_output(output)
+            extra = {"output_full": full} if full is not None else {}
+            emit("tool", tool_call_id=tc.id, name=tc.name, output=shown, **extra)
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": shown})
             tool_calls_done += 1
             if asked:
                 final_message = last_text

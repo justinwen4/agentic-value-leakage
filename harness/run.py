@@ -49,7 +49,7 @@ from harness.prefill import check_platform, normalize_prefill, prefix_path, read
 from harness.providers import make_provider
 from harness.providers.openai_compat import cache_mode
 from harness.taskenv import ensure_episode_venv, neutral_task_dir, remove_neutral_workspace, task_python
-from harness.tools import sandboxed
+from harness.tools import OUTPUT_CAP, sandboxed
 from taskgen.generate import generate, load_entities
 
 _SECRET_ENVS = ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")
@@ -291,6 +291,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             "ask_enabled": bool(cfg["ask_enabled"]),
             "prefill": prefill_meta,
             "cache": cache_mode(model["model"]),
+            "output_cap": dict(OUTPUT_CAP),
             "started": started,
             **runtime_meta(episode_python),
         })

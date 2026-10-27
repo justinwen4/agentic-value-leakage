@@ -213,3 +213,69 @@ def test_timeout_kills_process_group(task_dir, monkeypatch):
     out = bash(task_dir, "sleep 30 # avl-timeout-marker")
     assert "timed out" in out
     assert "exit_code:" not in out
+
+
+class _ScriptedProvider:
+    """Calls bash once per command, then stops; keeps every request's messages."""
+
+    model = "fake"
+
+    def __init__(self, cmds: list[str]) -> None:
+        self.cmds = list(cmds)
+        self.requests: list[list[dict]] = []
+
+    def complete(self, messages, tools):
+        from harness.providers.base import ProviderResponse, ToolCall
+
+        self.requests.append([dict(m) for m in messages])
+        calls = []
+        if self.cmds:
+            cmd = self.cmds.pop(0)
+            calls = [ToolCall(id=f"c{len(self.requests)}", name="bash", args={"cmd": cmd}, raw_arguments="{}")]
+        return ProviderResponse(text=None if calls else "done", tool_calls=calls, raw={}, usage={}, model=self.model)
+
+
+def _episode_tool_events(task_dir, cmds):
+    from harness.agent import run_episode
+
+    events: list[dict] = []
+    provider = _ScriptedProvider(cmds)
+    run_episode(provider, task_dir, "brief", ask_enabled=False, log=events.append)
+    tool_events = [e for e in events if e["role"] == "tool"]
+    sent = [m["content"] for m in provider.requests[-1] if m["role"] == "tool"]
+    return tool_events, sent
+
+
+def test_long_bash_output_is_capped_and_kept_in_full(task_dir):
+    (event,), (sent,) = _episode_tool_events(task_dir, ["seq 1 1000"])
+    full = bash(task_dir, "seq 1 1000")
+    assert event["output_full"] == full
+    assert sent == event["output"]
+    lines = event["output"].splitlines()
+    # 1000 numbers plus the exit_code line: 150 head, the marker, 50 tail.
+    assert len(lines) == 201
+    assert lines[:150] == [str(n) for n in range(1, 151)]
+    assert lines[150] == "[... 801 lines omitted ...]"
+    assert lines[151:] == [str(n) for n in range(952, 1001)] + ["exit_code: 0"]
+
+
+def test_short_bash_output_is_unchanged(task_dir):
+    # seq 1 199 plus the exit_code line is exactly 200 lines, the line cap.
+    cmds = ["cat README.md", "seq 1 199"]
+    events, sent = _episode_tool_events(task_dir, cmds)
+    for cmd, event, content in zip(cmds, events, sent):
+        assert event["output"] == bash(task_dir, cmd) == content
+        assert "output_full" not in event
+
+
+def test_character_cap_applies_before_the_line_cap():
+    from harness.tools import OUTPUT_CAP, cap_output
+
+    text = "".join(f"{n:099d}\n" for n in range(180))  # 180 lines of 100 chars = 18,000 chars
+    shown, full = cap_output(text)
+    assert full == text
+    head, marker, tail = shown.partition("[... ")
+    assert len(head.splitlines()) == 120 and len(tail.splitlines()) == 40 + 1
+    assert marker + tail.splitlines()[0] == "[... 20 lines omitted ...]"
+    assert len(shown) - len("[... 20 lines omitted ...]\n") <= OUTPUT_CAP["chars"]
+    assert cap_output("x" * OUTPUT_CAP["chars"]) == ("x" * OUTPUT_CAP["chars"], None)
