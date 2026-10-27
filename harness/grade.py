@@ -200,6 +200,7 @@ def regenerate(meta: dict, out: Path) -> Path:
         m=int(meta["m"]),
         base_rate=str(meta["base_rate"]),
         seed=int(meta["seed"]),
+        readme_variant=meta.get("readme_variant", "none"),
         out=out,
         verify=False,
     )

@@ -283,6 +283,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             m=cell["m"],
             base_rate=cell["base_rate"],
             seed=cell["seed"],
+            readme_variant=cfg.get("readme_variant", "none"),
             out=task_dir,
             meta_path=run_dir / "meta.json",
         )
