@@ -451,13 +451,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true", help="rerun cells that already finished")
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    parser.add_argument("--models", nargs="+", metavar="NAME",
+                        help="run only these models[].name entries; their cells are the same as in the full config")
     args = parser.parse_args(argv)
     if args.concurrency < 1:
         print("concurrency must be >= 1", file=sys.stderr)
         return 2
 
     load_env()
-    arms = arm_configs(yaml.safe_load(args.config.read_text(encoding="utf-8")))
+    cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    if args.models:
+        unknown = set(args.models) - {model["name"] for model in cfg["models"]}
+        if unknown:
+            print(f"--models names not in {args.config}: {sorted(unknown)}", file=sys.stderr)
+            return 2
+        cfg["models"] = [model for model in cfg["models"] if model["name"] in args.models]
+    arms = arm_configs(cfg)
     try:
         for arm in arms:
             check_prefix_files(arm)

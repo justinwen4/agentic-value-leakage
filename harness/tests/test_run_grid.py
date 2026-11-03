@@ -229,3 +229,17 @@ def test_resume_reads_pre_pr_sweep_folders_as_defaults(monkeypatch, tmp_path):
     monkeypatch.setattr(run, "load_env", lambda: None)
     monkeypatch.setattr(run, "run_cell", lambda *a, **k: "skip")
     assert run.main(["--config", str(CONFIGS / "midpoint_sweep.yaml"), "--runs-dir", str(tmp_path)]) == 0
+
+
+def test_models_option_runs_only_those_models(monkeypatch, tmp_path):
+    import harness.run as run
+
+    models = [{"name": n, "model": f"x/{n}", "provider": "openai_compat"} for n in ("a", "b")]
+    config = tmp_path / "c.yaml"
+    config.write_text(yaml.safe_dump({**BASE, "models": models, "seeds": {"A": [0], "B": [100]}, "template": "lab_eval"}))
+    ran = []
+    monkeypatch.setattr(run, "load_env", lambda: None)
+    monkeypatch.setattr(run, "run_cell", lambda arm, cell, *a, **k: ran.append(cell["model"]["name"]) or "done")
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--models", "b"]) == 0
+    assert ran and set(ran) == {"b"}
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--models", "c"]) == 2

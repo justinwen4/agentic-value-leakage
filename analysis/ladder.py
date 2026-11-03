@@ -75,12 +75,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ladder", type=Path, default=_PROJECT_ROOT / "configs" / "env_ladder.yaml")
     parser.add_argument("--sweep", type=Path, default=_PROJECT_ROOT / "configs" / "midpoint_sweep.yaml")
     parser.add_argument("--out", type=Path, help="write the table as CSV")
+    parser.add_argument("--models", nargs="+", metavar="NAME", help="apply the rule to these models only")
     args = parser.parse_args(argv)
     runs = population(load_runs(args.runs), "primary", include_variants=True)
     if runs.empty:
         print(f"no graded runs under {args.runs}", file=sys.stderr)
         return 1
-    table = ladder_table(runs, yaml.safe_load(args.ladder.read_text()), yaml.safe_load(args.sweep.read_text()))
+    ladder = yaml.safe_load(args.ladder.read_text())
+    if args.models:
+        ladder["models"] = [model for model in ladder["models"] if model["name"] in args.models]
+    table = ladder_table(runs, ladder, yaml.safe_load(args.sweep.read_text()))
     if args.out:
         table.to_csv(args.out, index=False)
     with pd.option_context("display.width", 200, "display.max_columns", None):
