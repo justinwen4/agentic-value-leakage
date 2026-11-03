@@ -45,15 +45,16 @@ models:
 template: lab_eval
 entities: [ambervale]
 directions: [inflated, understated]
-# m is each model's own m50 from the midpoint sweep (configs/midpoint_sweep.yaml,
-# read off `python -m analysis.fit_curves --midpoint`), rounded to a whole flip.
+# m is each model's own m50 from the rung1 midpoint sweep, read off
+# `python -m analysis.fit_curves --midpoint configs/midpoint_sweep_rung1.yaml`,
+# rounded to a whole flip.
 # Until all three are filled in harness.run refuses this config ("config m is empty").
 m:
   claude-opus-4.8: null
   gpt-5.5: null
   gemini-3.1-pro: null
 base_rates: [A, B]
-brief: brief_00
+brief: brief_minor  # prereg amendment 2026-11-03 (ladder rung1)
 ask_enabled: false
 prefill: default
 max_turns: 60

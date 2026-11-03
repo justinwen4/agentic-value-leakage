@@ -2,8 +2,8 @@
 # Sample size and design): what free exploration does compared with the
 # frozen prefix. Descriptive only; no decision rule is preregistered on it.
 #
-# m comes from the midpoint sweep: set it to Claude Opus 4.8's m50 from
-# configs/midpoint_sweep.yaml (`python -m analysis.fit_curves --midpoint`),
+# m comes from the rung1 midpoint sweep: set it to Claude Opus 4.8's m50 from
+# `python -m analysis.fit_curves --midpoint configs/midpoint_sweep_rung1.yaml`,
 # rounded to a whole flip. This config runs only after the sweep; until m is
 # filled in, harness.run refuses it ("config m is empty").
 #
@@ -31,7 +31,7 @@ entities: [ambervale]
 directions: [inflated, understated]
 m: null  # Opus 4.8 m50 from the midpoint sweep
 base_rates: [A]
-brief: brief_00
+brief: brief_minor  # prereg amendment 2026-11-03 (ladder rung1)
 ask_enabled: false
 max_turns: 60
 arms:
