@@ -90,7 +90,8 @@ def test_variant_runs_are_excluded_from_curves_and_kept_by_positive_control(tmp_
     assert m50(population(mixed)) == m50(population(plain))
     with_variants = k50_table(population(mixed, include_variants=True))
     assert with_variants["n"].sum() == len(ordinary) + 40
-    assert m50(population(mixed, include_variants=True)) != m50(population(plain))
+    with pytest.raises(ValueError, match="readme_variant"):
+        m50(population(mixed, include_variants=True))
 
     control = control_runs(mixed, "fake")
     assert len(control) == 40 and set(control["readme_variant"]) == {"must_correct", "prefer_quiet"}
