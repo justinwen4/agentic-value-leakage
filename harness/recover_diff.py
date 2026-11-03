@@ -11,7 +11,12 @@ with the recorded one, and captures the diff against the generated base.
 
 Outputs are compared after normalizing what differs between two executions
 of the same calls: the workspace path, commit and object hashes, pytest
-timings, ``date``, git and ``ls -l`` dates. Nothing in the run folder is overwritten
+timings and banner padding, pip wheel details, ``date``, git and ``ls -l``
+dates. Calls that name the old workspace or a commit hash from the original
+episode are rewritten before they run: each matched output pairs the
+recorded hashes with the replayed ones in order, and later arguments get the
+replayed hash (a recorded prefix gets the same-length prefix). Every rewrite
+is listed in the replay record. Nothing in the run folder is overwritten
 blind: the old diff is kept as ``diff_captured.patch`` and the replay record,
 mismatches included, goes to ``diff_recovery.json``. A run with any mismatch
 keeps its old ``diff.patch`` unless ``--accept-mismatch`` is given. Regrade
@@ -33,8 +38,10 @@ from harness.taskenv import ensure_episode_venv, neutral_task_dir, remove_neutra
 from harness.tools import AskSignal, cap_output, execute
 from taskgen.generate import generate, load_entities
 
-_HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
+_HEX = re.compile(r"\b[0-9a-f]{7,64}\b")
 _PYTEST_TIME = re.compile(r"\bin \d+\.\d+s\b")
+_BANNER = re.compile(r"^=+ (.*?) =+$", re.M)
+_WHEEL = re.compile(r"size=\d+|pip-ephem-wheel-cache-\w+|wheels(/[0-9a-f]+)+")
 _LS_DATE = re.compile(r"\b[A-Z][a-z]{2} +\d{1,2} +(\d{1,2}:\d{2}|\d{4})\b")
 _GIT_DATE = re.compile(r"^( *Date: +).*$", re.M)
 _WORKSPACE = re.compile(r"/(private/)?tmp/ws-[0-9a-f]{8}")
@@ -47,7 +54,51 @@ def normalize(text: str) -> str:
     text = _GIT_DATE.sub(r"\1<date>", text)
     text = _LS_DATE.sub("<date>", text)
     text = _PYTEST_TIME.sub("in <t>s", text)
+    text = _BANNER.sub(r"== \1 ==", text)
+    text = _WHEEL.sub("<wheel>", text)
     return _HEX.sub("<hex>", text)
+
+
+def _strings(value, fn):
+    if isinstance(value, str):
+        return fn(value)
+    if isinstance(value, dict):
+        return {k: _strings(v, fn) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_strings(v, fn) for v in value]
+    return value
+
+
+class Translator:
+    """Maps the original episode's workspace path and hashes onto the replay's."""
+
+    def __init__(self, old_dir: str, new_dir: Path) -> None:
+        old = str(old_dir).removeprefix("/private")
+        new = str(new_dir).removeprefix("/private")
+        self.paths = [("/private" + old, str(new_dir)), (old, new)]
+        self.hashes: dict[str, str] = {}
+
+    def learn(self, recorded: str, replayed: str) -> None:
+        """Pair hashes position by position; call only when the normalized outputs match."""
+        for old, new in zip(_HEX.findall(_WORKSPACE.sub("", recorded)), _HEX.findall(_WORKSPACE.sub("", replayed))):
+            if old != new:
+                self.hashes.setdefault(old, new)
+
+    def _hash(self, match: re.Match) -> str:
+        token = match.group(0)
+        if token in self.hashes:
+            return self.hashes[token]
+        for old, new in self.hashes.items():
+            if old.startswith(token):
+                return new[:len(token)]
+            if token.startswith(old):
+                return new
+        return token
+
+    def rewrite(self, text: str) -> str:
+        for old, new in self.paths:
+            text = text.replace(old, new)
+        return _HEX.sub(self._hash, text)
 
 
 def recorded_calls(events: list[dict]) -> list[tuple[dict, dict]]:
@@ -75,13 +126,19 @@ def recover(run_dir: Path, *, accept_mismatch: bool = False) -> str:
             return f"FAIL {run_dir}: regenerated HEAD {regen['git']['head']} != meta {base}"
         ensure_episode_venv(task_dir)
 
-        mismatches = []
+        mismatches, rewrites = [], []
+        translate = Translator(meta["task_dir"], task_dir)
         pairs = recorded_calls(events)
         for n, (call, event) in enumerate(pairs, start=1):
-            result = execute(task_dir, call["name"], call.get("args"), ask_enabled=bool(meta["ask_enabled"]))
+            args = _strings(call.get("args"), translate.rewrite)
+            if args != call.get("args"):
+                rewrites.append({"call": n, "args": json.dumps(args)[:300]})
+            result = execute(task_dir, call["name"], args, ask_enabled=bool(meta["ask_enabled"]))
             output = "end run, action=Ask" if isinstance(result, AskSignal) else result
             shown, _ = cap_output(output)
-            if normalize(shown) != normalize(event.get("output")):
+            if normalize(shown) == normalize(event.get("output")):
+                translate.learn(event.get("output") or "", shown)
+            else:
                 lines = difflib.unified_diff(normalize(event.get("output")).splitlines(),
                                              normalize(shown).splitlines(), "recorded", "replayed", lineterm="", n=1)
                 mismatches.append({
@@ -99,6 +156,7 @@ def recover(run_dir: Path, *, accept_mismatch: bool = False) -> str:
         "calls": len(pairs),
         "mismatched_calls": len(mismatches),
         "mismatches": mismatches,
+        "rewritten_calls": rewrites,
         "diff_bytes": len(diff),
         "applied": not mismatches or accept_mismatch,
     }

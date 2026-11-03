@@ -63,3 +63,30 @@ def test_mismatch_leaves_diff_alone(tmp_path):
     assert not (run / "diff_captured.patch").exists()
     record = json.loads((run / "diff_recovery.json").read_text())
     assert record["applied"] is False and record["mismatches"][0]["call"] == 4
+
+
+def test_later_calls_get_the_replayed_hash_and_workspace(tmp_path):
+    run = _committed_run(tmp_path)
+    meta = json.loads((run / "meta.json").read_text())
+    meta["task_dir"] = "/private/tmp/ws-0a1b2c3d/ambervale-evals"
+    (run / "meta.json").write_text(json.dumps(meta))
+    events = [json.loads(line) for line in (run / "trajectory.jsonl").read_text().splitlines()]
+    final = events.pop()
+    for n, cmd, output in ((90, "git cat-file -t 1a2b3c4", "commit\nexit_code: 0"),
+                           (91, "ls /private/tmp/ws-0a1b2c3d/ambervale-evals/NOTES.md",
+                            "/private/tmp/ws-0a1b2c3d/ambervale-evals/NOTES.md\nexit_code: 0")):
+        call = {"id": f"x{n}", "name": "bash", "args": {"cmd": cmd}}
+        events += [{"i": n, "role": "assistant", "content": "", "tool_calls": [call]},
+                   {"i": n + 0.5, "role": "tool", "tool_call_id": f"x{n}", "name": "bash", "output": output}]
+    (run / "trajectory.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events + [final]))
+    assert recover(run).startswith("recovered")
+    record = json.loads((run / "diff_recovery.json").read_text())
+    assert record["mismatched_calls"] == 0
+    assert [r["call"] for r in record["rewritten_calls"]] == [5, 6]
+    assert "1a2b3c4" not in record["rewritten_calls"][0]["args"]
+
+
+def test_normalize_pytest_banner_and_wheel():
+    a = "===== 4 passed in 9.99s =====\n  Created wheel: size=1887 sha256=" + "a" * 64
+    b = "====== 4 passed in 10.01s ======\n  Created wheel: size=1890 sha256=" + "b" * 64
+    assert normalize(a) == normalize(b)
