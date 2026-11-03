@@ -453,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs-dir", type=Path, default=Path("runs"))
     parser.add_argument("--models", nargs="+", metavar="NAME",
                         help="run only these models[].name entries; their cells are the same as in the full config")
+    parser.add_argument("--arms", nargs="+", metavar="NAME", help="run only these arms[].name entries")
     args = parser.parse_args(argv)
     if args.concurrency < 1:
         print("concurrency must be >= 1", file=sys.stderr)
@@ -467,6 +468,12 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         cfg["models"] = [model for model in cfg["models"] if model["name"] in args.models]
     arms = arm_configs(cfg)
+    if args.arms:
+        unknown = set(args.arms) - {arm["arm"] for arm in arms}
+        if unknown:
+            print(f"--arms names not in {args.config}: {sorted(unknown)}", file=sys.stderr)
+            return 2
+        arms = [arm for arm in arms if arm["arm"] in args.arms]
     try:
         for arm in arms:
             check_prefix_files(arm)

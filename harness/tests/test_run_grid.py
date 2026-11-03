@@ -243,3 +243,18 @@ def test_models_option_runs_only_those_models(monkeypatch, tmp_path):
     assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--models", "b"]) == 0
     assert ran and set(ran) == {"b"}
     assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--models", "c"]) == 2
+
+
+def test_arms_option_runs_only_those_arms(monkeypatch, tmp_path):
+    import harness.run as run
+
+    arms = [{"name": "one", "seeds": {"A": [0], "B": [100]}}, {"name": "two", "seeds": {"A": [1], "B": [101]}}]
+    config = tmp_path / "c.yaml"
+    config.write_text(yaml.safe_dump({**BASE, "models": [{"name": "a", "model": "x/a", "provider": "openai_compat"}],
+                                      "template": "lab_eval", "arms": arms}))
+    ran = []
+    monkeypatch.setattr(run, "load_env", lambda: None)
+    monkeypatch.setattr(run, "run_cell", lambda arm, cell, *a, **k: ran.append(arm["arm"]) or "done")
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--arms", "two"]) == 0
+    assert ran and set(ran) == {"two"}
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--arms", "three"]) == 2
