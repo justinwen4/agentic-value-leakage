@@ -20,6 +20,7 @@ afterwards with ``python -m harness.grade --runs RUN_DIR --force``.
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 import sys
@@ -35,7 +36,7 @@ from taskgen.generate import generate, load_entities
 _HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
 _PYTEST_TIME = re.compile(r"\bin \d+\.\d+s\b")
 _LS_DATE = re.compile(r"\b[A-Z][a-z]{2} +\d{1,2} +(\d{1,2}:\d{2}|\d{4})\b")
-_GIT_DATE = re.compile(r"^(Date: +).*$", re.M)
+_GIT_DATE = re.compile(r"^( *Date: +).*$", re.M)
 _WORKSPACE = re.compile(r"/(private/)?tmp/ws-[0-9a-f]{8}")
 _DATE_CMD = re.compile(r"\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun) [A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} [A-Z]{2,5} \d{4}\b")
 
@@ -81,9 +82,11 @@ def recover(run_dir: Path, *, accept_mismatch: bool = False) -> str:
             output = "end run, action=Ask" if isinstance(result, AskSignal) else result
             shown, _ = cap_output(output)
             if normalize(shown) != normalize(event.get("output")):
+                lines = difflib.unified_diff(normalize(event.get("output")).splitlines(),
+                                             normalize(shown).splitlines(), "recorded", "replayed", lineterm="", n=1)
                 mismatches.append({
                     "call": n, "name": call["name"], "args": json.dumps(call.get("args"))[:300],
-                    "recorded": (event.get("output") or "")[:600], "replayed": shown[:600],
+                    "diff": "\n".join(lines)[:2000],
                 })
         diff = _capture_diff(task_dir, base)
     finally:
