@@ -155,6 +155,7 @@ def test_resume_refuses_a_finished_folder_holding_a_different_cell(monkeypatch, 
         run.run_cell({**cfg, "brief": "brief_01"}, cell, tmp_path, "brief", force=False)
     assert folder in str(exc.value)
     for change, expected in ((dict(cfg, readme_variant="must_correct"), "readme_variant: existing 'none'"),
+                             (dict(cfg, log_history="v031_notes"), "log_history: existing 'none'"),
                              (dict(cfg, arm="must_correct"), "arm: existing None"),
                              (dict(cfg, template="charity_program"), "template: existing 'lab_eval'"),
                              (dict(cfg, ask_enabled=True), "ask_enabled: existing False, planned True"),

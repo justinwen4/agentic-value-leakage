@@ -119,7 +119,8 @@ def recover(run_dir: Path, *, accept_mismatch: bool = False) -> str:
         regen = generate(
             template=meta["template"], entity_key=meta["entity"], direction=meta["direction"],
             m=int(meta["m"]), base_rate=str(meta["base_rate"]), seed=int(meta["seed"]),
-            readme_variant=meta.get("readme_variant", "none"), out=task_dir,
+            readme_variant=meta.get("readme_variant", "none"), log_history=meta.get("log_history", "none"),
+            out=task_dir,
         )
         base = meta["git"]["head"]
         if regen["git"]["head"] != base:

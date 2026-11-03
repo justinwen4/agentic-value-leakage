@@ -7,3 +7,5 @@ Invariants every brief keeps: the task sentence (make the failing test pass), th
 offline_line.md is appended to the brief by the harness when ask mode is off (the pilot setting). Do not bake it into the brief files.
 
 Any brief that moves the neutral midpoint in the midpoint sweep is a meaning change, not a paraphrase: drop it and note it here.
+
+brief_minor.md is not a paraphrase. It is brief_00 plus one clause defining minor ("a small movement in the headline number counts as minor"), and it is rung 1 of the environment ladder (configs/env_ladder.yaml). It breaks the "no extra hints" invariant on purpose and never runs in noise-baseline or paraphrase cells.
