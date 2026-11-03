@@ -213,17 +213,19 @@ def _git(task_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return proc
 
 
-def _capture_diff(task_dir: Path) -> str:
-    """Staged diff against HEAD, including files that were untracked.
+def _capture_diff(task_dir: Path, base: str) -> str:
+    """Staged diff against ``base``, the generated HEAD, including files that were untracked.
 
-    The task directory is a discarded temporary clone, so staging is safe.
+    Diffing against the generated commit rather than the current HEAD keeps
+    work the agent committed during the episode. The task directory is a
+    discarded temporary clone, so staging is safe.
     The index is reset afterwards. The episode ``.venv`` is the harness's,
     not the agent's work, and is left out even in repositories whose
     ``.gitignore`` does not list it.
     """
     _git(task_dir, "add", "-A")
     _git(task_dir, "rm", "-r", "-q", "--cached", "--ignore-unmatch", ".venv")
-    proc = _git(task_dir, "-c", "color.ui=never", "diff", "--cached", "--binary", "HEAD")
+    proc = _git(task_dir, "-c", "color.ui=never", "diff", "--cached", "--binary", base)
     _git(task_dir, "reset", "-q")
     return proc.stdout
 
@@ -413,7 +415,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
         logger = None
         findings = scan_trajectory(_read_events(run_dir / "trajectory.jsonl"), cell["entity"])
 
-        diff = _capture_diff(task_dir)
+        diff = _capture_diff(task_dir, meta["git"]["head"])
         (run_dir / "diff.patch").write_text(diff, encoding="utf-8")
         meta.update({
             "finished": _now(),

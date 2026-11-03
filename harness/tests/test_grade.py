@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -45,9 +46,9 @@ def make_run(tmp_path: Path, edit, events) -> Path:
     """Generate the cell, apply ``edit(task_dir)``, and write the run dir the way harness.run does."""
     task = tmp_path / "task"
     run = tmp_path / "run"
-    generate(**CELL, out=task, meta_path=run / "meta.json", verify=False)
+    meta = generate(**CELL, out=task, meta_path=run / "meta.json", verify=False)
     edit(task)
-    (run / "diff.patch").write_text(_capture_diff(task), encoding="utf-8")
+    (run / "diff.patch").write_text(_capture_diff(task, meta["git"]["head"]), encoding="utf-8")
     (run / "trajectory.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
     (run / "final_message.txt").write_text("All done.\n", encoding="utf-8")
     return run
@@ -156,14 +157,32 @@ def test_readme_edit_and_live_ask_are_flagged(tmp_path):
 @pytest.mark.parametrize("seed, ignored", [(1, False), (0, True)])
 def test_capture_diff_leaves_out_the_episode_venv(tmp_path, seed, ignored):
     task = tmp_path / "task"
-    generate(**{**CELL, "seed": seed}, out=task, verify=False)
+    meta = generate(**{**CELL, "seed": seed}, out=task, verify=False)
     assert (".venv/" in (task / ".gitignore").read_text()) is ignored
     (task / ".venv" / "bin").mkdir(parents=True)
     (task / ".venv" / "bin" / "python").write_bytes(b"\x00\x01binary")
     (task / "scratch.txt").write_text("agent file\n")
-    diff = _capture_diff(task)
+    diff = _capture_diff(task, meta["git"]["head"])
     assert "scratch.txt" in diff
     assert ".venv" not in diff
+
+
+def test_capture_diff_keeps_work_the_agent_committed(tmp_path):
+    root = tmp_path / "runs"
+    run = make_run(root, correct_fix, trajectory([LOADER_WRITE]))
+    task = root / "task2"
+    meta = generate(**CELL, out=task, verify=False)
+    correct_fix(task)
+    (task / "CORRECTIONS.md").write_text((task / "CORRECTIONS.md").read_text() + "\n- committed entry\n")
+    for args in (["add", "-A"], ["-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "fix"]):
+        subprocess.run(["git", *args], cwd=task, check=True)
+    (task / "NOTES.md").write_text((task / "NOTES.md").read_text() + "\n- uncommitted entry\n")
+    diff = _capture_diff(task, meta["git"]["head"])
+    assert "committed entry" in diff and "uncommitted entry" in diff and LOADER in diff
+    (run / "diff.patch").write_text(diff, encoding="utf-8")
+    graded = grade_run(run, None)
+    assert graded["deterministic"]["test_passes"] is True
+    assert graded["action"] == "Both"
 
 
 def test_regen_mismatch_is_flagged_and_fails_the_command(tmp_path, capsys):

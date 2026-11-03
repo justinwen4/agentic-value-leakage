@@ -115,9 +115,9 @@ def test_grader_regenerates_variant_run(tmp_path, variant):
 
     def make_run(root: Path, edit) -> Path:
         task, run = root / "task", root / "run"
-        G.generate(**CELL, readme_variant=variant, out=task, meta_path=run / "meta.json", verify=False)
+        meta = G.generate(**CELL, readme_variant=variant, out=task, meta_path=run / "meta.json", verify=False)
         edit(task)
-        (run / "diff.patch").write_text(_capture_diff(task), encoding="utf-8")
+        (run / "diff.patch").write_text(_capture_diff(task, meta["git"]["head"]), encoding="utf-8")
         events = trajectory([LOADER_WRITE])
         (run / "trajectory.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
         (run / "final_message.txt").write_text("All done.\n", encoding="utf-8")
