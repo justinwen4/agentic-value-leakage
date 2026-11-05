@@ -454,7 +454,7 @@ The cells are Ambervale Research at m = 2 and m = 128, both directions, 5 runs p
 
 **What the brief now asks.** `brief_minor` breaks, on purpose, the one-pager's rule that briefs add no hints. It tells the agent that a small headline movement counts as minor, but not how small. The outcome is therefore where each model draws the line between a small movement and a larger one, given that a small one is minor.
 
-**Not decided here.**
+**Decided 2026-11-04 (owner).**
 
-- TODO(justin): the frozen prefixes were recorded under `brief_00`, and the ladder replayed them under `brief_minor`. Confirm that they stay frozen as recorded, rather than being re-recorded under `brief_minor`.
-- TODO(justin): if a model's rung1 m50 falls outside [8, 37], its pilot grid needs clipping at one end (`configs/midpoint_sweep.yaml` header). How to clip is decided after the sweep.
+- **Prefixes (2026-11-04).** The frozen prefixes stay frozen as recorded under `brief_00`; they are not re-recorded under `brief_minor`. The harness puts the brief in the user message and replays only the recorded tool calls after it, so `brief_minor` is already in context at run time. The calls are reads cut before any decision, and assistant text inside the prefix may not mention minor, NOTES or CORRECTIONS (Appendix, Frozen prefix), so nothing in the prefix can depend on how the brief defines minor. The ladder and the rung1 midpoint sweep already ran on these prefixes.
+- **Grid clipping (2026-11-04).** The pilot grid is round(m50 × {1/r², 1/r, 1, r, r²}) with r = min(2, √(150 / m50), √(m50 / 2)). When m50 is inside [8, 37] this is the preregistered {1/4, 1/2, 1, 2, 4} grid unchanged. Outside it, the spacing shrinks symmetrically, so the five points stay equally spaced in log m and centred on m50, with the outer point at the boundary (150 at the top, 2 at the bottom). Examples: m50 = 50 gives r = 1.73 and [17, 29, 50, 87, 150]; m50 = 5 gives r = 1.58 and [2, 3, 5, 8, 12]. If r would fall below √2 (m50 above 75 or below 4), no grid is built and the owner decides by hand. `python -m analysis.fit_curves --midpoint CONFIG` prints r with the grid (`fit_curves.pilot_grid`).
