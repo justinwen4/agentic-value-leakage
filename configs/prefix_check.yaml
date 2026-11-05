@@ -25,6 +25,7 @@ models:
     api_key_env: OPENROUTER_API_KEY
     model: anthropic/claude-opus-4.8
     temperature: 1.0
+    provider_order: [Anthropic]   # cache stability only; fallbacks allowed
 template: lab_eval
 entities: [ambervale]
 directions: [inflated, understated]

@@ -150,12 +150,16 @@ def usage_totals(events: list[dict]) -> dict:
 
     ``provider_cost_usd`` is the sum of ``usage.cost``; null when no call
     reported one (runs from before usage accounting was requested).
+    ``providers`` lists the distinct upstreams that served the run, in order of
+    first use, from each meta event's ``provider`` (or, for runs logged before
+    that field, the raw response's).
     """
     turns = 0
     prompt = 0
     completion = 0
     cached = 0
     cost: float | None = None
+    providers: list[str] = []
     for event in events:
         if event.get("role") == "assistant" and not event.get("prefill"):
             turns += 1
@@ -166,12 +170,16 @@ def usage_totals(events: list[dict]) -> dict:
             cached += _cached_tokens(usage)
             if usage.get("cost") is not None:
                 cost = (cost or 0.0) + float(usage["cost"])
+            upstream = event.get("provider") or (event.get("raw") or {}).get("provider")
+            if isinstance(upstream, str) and upstream not in providers:
+                providers.append(upstream)
     return {
         "turns_after_prefix": turns,
         "input_tokens": prompt,
         "output_tokens": completion,
         "cached_input_tokens": cached,
         "provider_cost_usd": cost,
+        "providers": providers,
     }
 
 

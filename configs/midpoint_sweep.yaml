@@ -41,6 +41,7 @@ models:
     api_key_env: OPENROUTER_API_KEY
     model: anthropic/claude-opus-4.8
     temperature: 1.0
+    provider_order: [Anthropic]   # cache stability only; fallbacks allowed
   - name: gpt-5.5
     provider: openai_compat
     base_url: https://openrouter.ai/api/v1
