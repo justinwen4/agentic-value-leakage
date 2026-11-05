@@ -30,7 +30,10 @@ Inputs are ``grade.json`` plus ``meta.json`` under ``--runs``; k is
 ``--midpoint CONFIG`` also fits each model's neutral curve in log m pooling
 both directions and base rates, on that sweep config's cells only
 (``config_cells``), and prints m50 with the pilot grid
-``round(m50 x {1/4, 1/2, 1, 2, 4})``.
+``round(m50 x {1/r^2, 1/r, 1, r, r^2})``, r = min(2, sqrt(150 / m50),
+sqrt(m50 / 2)) (``pilot_grid``; prereg amendment 2026-11-03, decided
+2026-11-04). Inside m50 in [8, 37], r = 2: the preregistered
+{1/4, 1/2, 1, 2, 4} grid.
 """
 from __future__ import annotations
 
@@ -46,7 +49,8 @@ import pandas as pd
 import yaml
 from scipy.optimize import minimize
 
-GRID_FACTORS = (0.25, 0.5, 1.0, 2.0, 4.0)
+# Pilot grid: five points at m50 x r^{-2..2}, inside [GRID_MIN_M, SHARD_S].
+GRID_MIN_M, SHARD_S = 2, 150
 # The pilot brief (prereg amendment 2026-11-03: brief_minor replaces brief_00).
 CANONICAL_BRIEF = "brief_minor"
 _SLOPE_CAP = 100.0
@@ -375,8 +379,42 @@ def m50(runs: pd.DataFrame) -> dict:
         raise ValueError(f"m50 pools one model's cells of one sweep; these vary: {mixed or ['model']}")
     curve = fit_logistic(runs["m"].astype(float), runs["public"])
     value = math.exp(curve.log_k50) if not curve.censored else None
-    grid = sorted({max(1, round(value * f)) for f in GRID_FACTORS}) if value else None
-    return {"m50": value, "censored": curve.censored, "slope": curve.slope, "n": curve.n, "grid": grid}
+    r, grid = None, None
+    if value:
+        r = math.sqrt(_grid_r2(value))
+        try:
+            grid = pilot_grid(value)[1]
+        except ValueError:
+            pass
+    return {"m50": value, "censored": curve.censored, "slope": curve.slope, "n": curve.n, "r": r, "grid": grid}
+
+
+def _grid_r2(m50: float) -> float:
+    return min(4.0, SHARD_S / m50, m50 / GRID_MIN_M)
+
+
+def pilot_grid(m50: float) -> tuple[float, list[int]]:
+    """(r, round(m50 x {1/r^2, 1/r, 1, r, r^2})), r = min(2, sqrt(150 / m50), sqrt(m50 / 2)).
+
+    For m50 in [8, 37], r = 2. Outside it the spacing shrinks symmetrically,
+    so the points stay equally spaced in log m around m50, with the outer
+    point at 150 (above) or 2 (below). r below sqrt(2) (m50 above 75 or
+    below 4) raises: the owner sets that grid by hand. r^2 is computed
+    directly, not as sqrt(.)^2, so the outer points land exactly on the
+    boundary before rounding.
+    """
+    r2 = _grid_r2(m50)
+    if r2 < 2.0:
+        raise ValueError(f"m50 = {m50:.3g} gives r = {math.sqrt(r2):.3g} < sqrt(2): no pilot grid, the owner decides by hand")
+    r = math.sqrt(r2)
+    return r, [round(m50 / r2), round(m50 / r), round(m50), round(m50 * r), round(m50 * r2)]
+
+
+def _midpoint_line(result: dict) -> str:
+    if result["censored"]:
+        return f"censored {result['censored']} (n {result['n']})"
+    grid = result["grid"] or "none: r < sqrt(2), the owner decides by hand"
+    return f"m50 = {result['m50']:.1f}, r = {result['r']:.3g}, grid {grid} (slope {result['slope']:.2f}, n {result['n']})"
 
 
 # ------------------------------------------------------------------------- cli
@@ -408,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
         cells = config_cells(pop, sweep)
         for model in [m["name"] for m in sweep["models"]]:
             frame = cells[cells["model"] == model]
-            print(f"midpoint {model} ({args.midpoint.name}): {m50(frame) if len(frame) else 'no runs'}")
+            print(f"midpoint {model} ({args.midpoint.name}): {_midpoint_line(m50(frame)) if len(frame) else 'no runs'}")
     gaps = None
     if args.roles:
         roles = yaml.safe_load(args.roles.read_text(encoding="utf-8"))

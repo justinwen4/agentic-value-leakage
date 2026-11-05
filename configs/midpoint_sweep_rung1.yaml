@@ -2,8 +2,8 @@
 # Amendments, 2026-11-03). Finds each pilot model's m50 on brief_minor, the
 # brief that replaces brief_00 for the pilot and the controls:
 #   python -m analysis.fit_curves --runs runs --midpoint configs/midpoint_sweep_rung1.yaml
-# prints m50 and the pilot grid round(m50 x {1/4, 1/2, 1, 2, 4}) per model,
-# fitted on this config's cells only (fit_curves.config_cells).
+# prints m50, r and the pilot grid per model, fitted on this config's cells
+# only (fit_curves.config_cells).
 #
 # Identical to configs/midpoint_sweep.yaml (same models, Ambervale, both
 # directions, m grid 2-128, A/B, 10 seeds per base rate, prefill default;
@@ -14,9 +14,13 @@
 #     ladder's rung1 cells cannot be reused: they carry arm "rung1", which
 #     the resume guard refuses to skip as a cell of this config.
 #
-# The pilot grid needs m50 in [8, 37] (4 x m50 <= S = 150, m50 / 4 >= 2). An
-# m50 outside it means the grid is clipped at one end; that is the owner's
-# call (prereg amendment, TODO(justin)).
+# Pilot grid (prereg amendment 2026-11-03, decided 2026-11-04;
+# fit_curves.pilot_grid): round(m50 x {1/r^2, 1/r, 1, r, r^2}) with
+# r = min(2, sqrt(150 / m50), sqrt(m50 / 2)). For m50 in [8, 37], r = 2: the
+# preregistered {1/4, 1/2, 1, 2, 4} grid. Outside it the spacing shrinks
+# symmetrically, equally spaced in log m around m50, with the outer point at
+# 150 (top) or 2 (bottom). r below sqrt(2) (m50 above 75 or below 4): no grid,
+# the owner decides by hand.
 #
 # Cost estimate (midpoint sweep per-run means: Opus $0.28, GPT-5.5 $0.20,
 # Gemini $0.39): 280 runs per model, about $78 / $56 / $109, $245 in all.

@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.fit_curves import CANONICAL_BRIEF, config_cells, fit_lapse, fit_logistic, gap, gap_table, k50_table, load_runs, m50, population
+from analysis.fit_curves import (CANONICAL_BRIEF, config_cells, fit_lapse, fit_logistic, gap, gap_table, k50_table, load_runs, m50,
+                                  pilot_grid, population)
 from analysis.noise_baseline import at_midpoint, cell_k50s, matched_real_gaps, neutral_gaps, pooled_slope, threshold
 
 N = 1000
@@ -162,7 +163,30 @@ def test_m50_and_pilot_grid():
     runs = pd.concat([simulate({"neutral": LOG_K50}, rng=rng, direction=d) for d in ("inflated", "understated")])
     result = m50(runs)
     assert 24 < result["m50"] < 37
-    assert result["grid"] == sorted({round(result["m50"] * f) for f in (0.25, 0.5, 1, 2, 4)})
+    assert result["r"] == 2
+    assert result["grid"] == [round(result["m50"] * f) for f in (0.25, 0.5, 1, 2, 4)]
+
+
+def test_pilot_grid_shrinks_r_outside_8_to_37():
+    # Inside [8, 37]: the preregistered {1/4, 1/2, 1, 2, 4} grid (Opus rung1, m50 = 19.3).
+    assert pilot_grid(19.3) == (2.0, [5, 10, 19, 39, 77])
+    for value in (8, 37.5):
+        assert pilot_grid(value)[0] == 2.0
+    # Above: the top point sits at S = 150.
+    r, grid = pilot_grid(50)
+    assert round(r, 2) == 1.73 and grid == [17, 29, 50, 87, 150]
+    # Below: the bottom point sits at m = 2.
+    r, grid = pilot_grid(5)
+    assert round(r, 2) == 1.58 and grid == [2, 3, 5, 8, 12]
+    # Equal spacing in log m, centred on m50, before rounding.
+    for value in (5, 19.3, 50):
+        r, _ = pilot_grid(value)
+        assert math.isclose(math.log(r), math.log(min(2, math.sqrt(150 / value), math.sqrt(value / 2))))
+    # r < sqrt(2) (m50 above 75 or below 4): no grid, the owner decides by hand.
+    assert pilot_grid(75)[1][-1] == 150 and pilot_grid(4)[1][0] == 2
+    for value in (76, 3.9):
+        with pytest.raises(ValueError, match="by hand"):
+            pilot_grid(value)
 
 
 def test_midpoint_fits_one_sweep_config_only():
