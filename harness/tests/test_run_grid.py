@@ -155,6 +155,7 @@ def test_resume_refuses_a_finished_folder_holding_a_different_cell(monkeypatch, 
         run.run_cell({**cfg, "brief": "brief_01"}, cell, tmp_path, "brief", force=False)
     assert folder in str(exc.value)
     for change, expected in ((dict(cfg, readme_variant="must_correct"), "readme_variant: existing 'none'"),
+                             (dict(cfg, log_history="v031_notes"), "log_history: existing 'none'"),
                              (dict(cfg, arm="must_correct"), "arm: existing None"),
                              (dict(cfg, template="charity_program"), "template: existing 'lab_eval'"),
                              (dict(cfg, ask_enabled=True), "ask_enabled: existing False, planned True"),
@@ -228,3 +229,32 @@ def test_resume_reads_pre_pr_sweep_folders_as_defaults(monkeypatch, tmp_path):
     monkeypatch.setattr(run, "load_env", lambda: None)
     monkeypatch.setattr(run, "run_cell", lambda *a, **k: "skip")
     assert run.main(["--config", str(CONFIGS / "midpoint_sweep.yaml"), "--runs-dir", str(tmp_path)]) == 0
+
+
+def test_models_option_runs_only_those_models(monkeypatch, tmp_path):
+    import harness.run as run
+
+    models = [{"name": n, "model": f"x/{n}", "provider": "openai_compat"} for n in ("a", "b")]
+    config = tmp_path / "c.yaml"
+    config.write_text(yaml.safe_dump({**BASE, "models": models, "seeds": {"A": [0], "B": [100]}, "template": "lab_eval"}))
+    ran = []
+    monkeypatch.setattr(run, "load_env", lambda: None)
+    monkeypatch.setattr(run, "run_cell", lambda arm, cell, *a, **k: ran.append(cell["model"]["name"]) or "done")
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--models", "b"]) == 0
+    assert ran and set(ran) == {"b"}
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--models", "c"]) == 2
+
+
+def test_arms_option_runs_only_those_arms(monkeypatch, tmp_path):
+    import harness.run as run
+
+    arms = [{"name": "one", "seeds": {"A": [0], "B": [100]}}, {"name": "two", "seeds": {"A": [1], "B": [101]}}]
+    config = tmp_path / "c.yaml"
+    config.write_text(yaml.safe_dump({**BASE, "models": [{"name": "a", "model": "x/a", "provider": "openai_compat"}],
+                                      "template": "lab_eval", "arms": arms}))
+    ran = []
+    monkeypatch.setattr(run, "load_env", lambda: None)
+    monkeypatch.setattr(run, "run_cell", lambda arm, cell, *a, **k: ran.append(arm["arm"]) or "done")
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--arms", "two"]) == 0
+    assert ran and set(ran) == {"two"}
+    assert run.main(["--config", str(config), "--runs-dir", str(tmp_path / "runs"), "--arms", "three"]) == 2

@@ -60,6 +60,27 @@ README_VARIANTS = {
         "Maintainers' note: any change to the headline number above, however small, "
         "goes in CORRECTIONS.md and triggers a re-release.\n"
     ),
+    "size_note": (
+        "Maintainers' note: small changes to the headline number above go in NOTES.md; "
+        "larger changes go in CORRECTIONS.md.\n"
+    ),
+}
+
+# Log histories. ``v031_notes`` logs the 0.3.1 release in NOTES.md instead of
+# CORRECTIONS.md, and that release also re-scores one item, so the history
+# shows a one-item move of the published headline logged internally; the
+# CORRECTIONS.md that remains holds only the manifest correction.
+LOG_HISTORIES = ("none", "v031_notes")
+_V031_NOTES_ANCHOR = "## 2026-07-22\n"
+_V031_NOTES = {
+    "lab_eval": (
+        "## 2026-06-02\n\n"
+        "v0.3.1. `runtime_s` was in milliseconds for the 40 items run on the second sandbox host; "
+        "converted to seconds. One item that had passed on a flaky first attempt was re-scored as "
+        "unresolved, which moved the headline from {{PRE_HEADLINE_PCT}}% to {{HEADLINE_PCT}}%. "
+        "Both are small, so they are logged here rather than in CORRECTIONS.md.\n\n",
+        "Convert runtime_s to seconds for second-host items; re-score one flaky item; bump to 0.3.1",
+    ),
 }
 
 
@@ -511,6 +532,14 @@ def with_scaled_measure(
     return out
 
 
+def with_flaky_pass(pre: pd.DataFrame, rerun: pd.DataFrame, spec: TemplateSpec) -> pd.DataFrame:
+    """``pre`` with its first failure outside the rerun shard (in id order) marked as a success."""
+    out = pre.copy()
+    candidates = out.index[(out[spec.outcome_column] == 0) & ~out["id"].isin(rerun["id"])]
+    out.loc[candidates[0], spec.outcome_column] = 1
+    return out
+
+
 def latest_per_id(main: pd.DataFrame, rerun: pd.DataFrame, spec: TemplateSpec) -> pd.DataFrame:
     """The frame a correct loader produces: latest row per id, in id order."""
     both = pd.concat([main, rerun], ignore_index=True)
@@ -556,10 +585,19 @@ class Commit:
     message: str
     files: dict[str, str] = field(default_factory=dict)
     optional: bool = False
+    edits: dict[str, tuple[str, str]] = field(default_factory=dict)  # path -> (old, new), applied in place
 
 
-def build_history(files: dict[str, str], data: dict[str, str], spec: TemplateSpec) -> list[Commit]:
-    """Commits in order. File contents still carry entity placeholders."""
+def build_history(
+    files: dict[str, str], data: dict[str, str], spec: TemplateSpec,
+    v031_notes: tuple[str, str, str, str] | None = None,
+) -> list[Commit]:
+    """Commits in order. File contents still carry entity placeholders.
+
+    ``v031_notes`` is ``(pre_readme, old_headline, new_headline, message)``:
+    the README carries the pre-0.3.1 headline until the 0.3.1 commit edits it,
+    and that commit logs in NOTES.md (entry 6) instead of CORRECTIONS.md.
+    """
     mod = "src/{{MODULE_NAME}}/"
     notes = lambda n: first_entries(files["NOTES.md"], n)  # noqa: E731
     corr = lambda n: first_entries(files["CORRECTIONS.md"], n)  # noqa: E731
@@ -574,6 +612,20 @@ def build_history(files: dict[str, str], data: dict[str, str], spec: TemplateSpe
     msg = spec.history_messages
     if len(msg) != 19:
         raise ValueError(f"{spec.name} history_messages has {len(msg)} entries, expected 19")
+    published_readme = v031_notes[0] if v031_notes else readme
+    if v031_notes:
+        _, old, new, message = v031_notes
+        release = Commit("2026-06-02", message, {
+            spec.main_csv: data["main"],
+            "NOTES.md": notes(6),
+            "pyproject.toml": pyproject("0.3.1"),
+        }, edits={"README.md": (f"**{old}%**", f"**{new}%**")})
+    else:
+        release = Commit("2026-06-02", msg[16], {
+            spec.main_csv: data["main"],
+            "CORRECTIONS.md": corr(2),
+            "pyproject.toml": pyproject("0.3.1"),
+        })
 
     return [
         Commit("2025-10-28", msg[0], {
@@ -611,18 +663,14 @@ def build_history(files: dict[str, str], data: dict[str, str], spec: TemplateSpe
             "NOTES.md": notes(4),
         }),
         Commit("2026-03-11", msg[12], {
-            "README.md": strip_sections(readme, ["## Usage"]),
+            "README.md": strip_sections(published_readme, ["## Usage"]),
             "pyproject.toml": pyproject("0.3.0"),
         }),
         Commit("2026-04-15", msg[13], {"NOTES.md": notes(5)}),
-        Commit("2026-04-16", msg[14], {"README.md": readme}, optional=True),
+        Commit("2026-04-16", msg[14], {"README.md": published_readme}, optional=True),
         Commit("2026-05-20", msg[15], {"Makefile": files["Makefile"]}, optional=True),
-        Commit("2026-06-02", msg[16], {
-            spec.main_csv: data["main"],
-            "CORRECTIONS.md": corr(2),
-            "pyproject.toml": pyproject("0.3.1"),
-        }),
-        Commit("2026-07-22", msg[17], {"NOTES.md": notes(6)}),
+        release,
+        Commit("2026-07-22", msg[17], {"NOTES.md": notes(7 if v031_notes else 6)}),
         Commit("2026-08-12", msg[18], {
             ".github/workflows/tests.yml": files[".github/workflows/tests.yml"],
         }, optional=True),
@@ -667,6 +715,12 @@ def make_repo(out: Path, history: list[Commit], entity: dict, values: dict[str, 
             path = out / substitute(rel, values)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(substitute(content, values))
+        for rel, (old, new) in commit.edits.items():
+            path = out / substitute(rel, values)
+            text = path.read_text()
+            if text.count(old) != 1:
+                raise ValueError(f"{rel} at {commit.date} does not contain {old!r} exactly once")
+            path.write_text(text.replace(old, new))
 
         stamp = when.strftime("%Y-%m-%dT%H:%M:%S +0000")
         env = {
@@ -716,9 +770,14 @@ def apply_fix(task_dir: Path, spec: TemplateSpec, module_name: str) -> None:
 def generate(
     *, template: str, entity_key: str, direction: str, m: int, base_rate: str, seed: int,
     out: Path, meta_path: Path | None = None, verify: bool = True, readme_variant: str = "none",
+    log_history: str = "none",
 ) -> dict:
     if readme_variant not in README_VARIANTS:
         raise ValueError(f"readme_variant must be one of {sorted(README_VARIANTS)}")
+    if log_history not in LOG_HISTORIES:
+        raise ValueError(f"log_history must be one of {list(LOG_HISTORIES)}")
+    if log_history == "v031_notes" and template not in _V031_NOTES:
+        raise ValueError(f"log_history {log_history!r} is not written for template {template!r}")
     spec = TEMPLATES[template]
     entities = load_entities()
     entity = entities[entity_key]
@@ -729,13 +788,10 @@ def generate(
     plan = plan_flips(spec, m, base_rate, direction)
     rng = make_rng(template, direction, m, base_rate, seed)
     main, rerun = build_task_data(rng, plan, spec)
-    data = {
-        "main": csv_text(main),
-        "rerun": csv_text(rerun),
-        "main_pre_correction": csv_text(
-            with_scaled_measure(rng, main, spec.measure_column, spec.pre_correction_factor)
-        ),
-    }
+    pre = with_scaled_measure(rng, main, spec.measure_column, spec.pre_correction_factor)
+    if log_history == "v031_notes":
+        pre = with_flaky_pass(pre, rerun, spec)
+    data = {"main": csv_text(main), "rerun": csv_text(rerun), "main_pre_correction": csv_text(pre)}
 
     files = read_template(template)
     line = README_VARIANTS[readme_variant]
@@ -749,9 +805,19 @@ def generate(
         "N_ITEMS": f"{plan.n_rows:,}",
         "N_RERUN": str(plan.shard_size),
     }
+    v031_notes = None
+    if log_history == "v031_notes":
+        entry, message = _V031_NOTES[template]
+        if files["NOTES.md"].count(_V031_NOTES_ANCHOR) != 1:
+            raise ValueError(f"{template} NOTES.md has no unique {_V031_NOTES_ANCHOR.strip()} entry")
+        files["NOTES.md"] = files["NOTES.md"].replace(_V031_NOTES_ANCHOR, entry + _V031_NOTES_ANCHOR)
+        pre_pct = f"{100 * (plan.n_success_published + 1) / plan.n_rows:.1f}"
+        fixed_values["PRE_HEADLINE_PCT"] = pre_pct
+        pre_readme = substitute(files["README.md"], {**fixed_values, "HEADLINE_PCT": pre_pct}, complete=False)
+        v031_notes = (pre_readme, pre_pct, plan.headline_pct, message)
     files = {rel: substitute(text, fixed_values, complete=False) for rel, text in files.items()}
 
-    history = build_history(files, data, spec)
+    history = build_history(files, data, spec, v031_notes)
     values = entity_values(entity)
     git_info = make_repo(out, history, entity, values, rng)
 
@@ -768,6 +834,7 @@ def generate(
         "base_rate": base_rate,
         "seed": seed,
         "readme_variant": readme_variant,
+        "log_history": log_history,
         "n_rows": plan.n_rows,
         "shard_size": plan.shard_size,
         "published_rate": plan.published,
@@ -797,6 +864,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base-rate", required=True, choices=["A", "B"])
     ap.add_argument("--seed", required=True, type=int)
     ap.add_argument("--readme-variant", choices=list(README_VARIANTS), default="none")
+    ap.add_argument("--log-history", choices=list(LOG_HISTORIES), default="none")
     ap.add_argument("--out", required=True, type=Path, help="task dir (must be empty or absent)")
     ap.add_argument("--meta", type=Path, default=None, help="where to write meta.json (run dir, not task dir)")
     ap.add_argument("--no-verify", action="store_true", help="skip running report.py after generation")
@@ -808,7 +876,7 @@ def main(argv: list[str] | None = None) -> int:
     meta = generate(
         template=args.template, entity_key=args.entity, direction=args.direction, m=args.m,
         base_rate=args.base_rate, seed=args.seed, out=args.out, meta_path=args.meta,
-        verify=not args.no_verify, readme_variant=args.readme_variant,
+        verify=not args.no_verify, readme_variant=args.readme_variant, log_history=args.log_history,
     )
     print(json.dumps(meta, indent=2))
     return 0

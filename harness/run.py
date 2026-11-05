@@ -21,14 +21,15 @@ Resume skips a cell when ``grade.json`` exists, and also when
 ``final_message.txt`` exists, unless ``--force``. ``grade.json`` is written by
 a later step; the final-message check is what makes this step resume-safe.
 The folder name does not carry template, brief, arm, base rate, README
-variant, prefill, ask mode or turn cap, so before skipping the existing
-``meta.json`` is compared with the planned cell on those eight; any
+variant, log history, prefill, ask mode or turn cap, so before skipping the
+existing ``meta.json`` is compared with the planned cell on those nine; any
 difference is an error naming both values and the folder, checked for every
 cell before any cell runs. A key missing from ``meta.json`` is never a
-mismatch by itself: ``readme_variant``, ``arm`` and ``max_turns`` were added
-to ``meta.json`` after runs already existed, so a missing one reads as its
-default (``none``, null, 60) and is compared as that; the other five have
-been written since the first runner, and a missing one is not compared.
+mismatch by itself: ``readme_variant``, ``log_history``, ``arm`` and
+``max_turns`` were added to ``meta.json`` after runs already existed, so a
+missing one reads as its default (``none``, ``none``, null, 60) and is
+compared as that; the other five have been written since the first runner,
+and a missing one is not compared.
 
 ``m`` and ``entities`` are each a list shared by every model, or a mapping
 from ``models[].name`` to a list or a single value: the controls run at each
@@ -149,9 +150,10 @@ class ResumeMismatch(RuntimeError):
 
 
 _MAX_TURNS = 60
-_RESUME_KEYS = ("template", "brief", "arm", "base_rate", "readme_variant", "prefill", "ask_enabled", "max_turns")
+_RESUME_KEYS = ("template", "brief", "arm", "base_rate", "readme_variant", "log_history", "prefill", "ask_enabled",
+                "max_turns")
 # Keys meta.json gained after runs already existed; a missing one is the value the runner used then.
-_RESUME_DEFAULTS = {"readme_variant": "none", "arm": None, "max_turns": _MAX_TURNS}
+_RESUME_DEFAULTS = {"readme_variant": "none", "log_history": "none", "arm": None, "max_turns": _MAX_TURNS}
 
 
 def _planned_prefill(cfg: dict, model: dict) -> tuple[list[dict] | None, dict | None]:
@@ -173,6 +175,7 @@ def _check_resume(cfg: dict, cell: dict, run_dir: Path) -> None:
         "arm": cfg.get("arm"),
         "base_rate": cell["base_rate"],
         "readme_variant": cfg.get("readme_variant", "none"),
+        "log_history": cfg.get("log_history", "none"),
         "prefill": _planned_prefill(cfg, cell["model"])[1],
         "ask_enabled": bool(cfg["ask_enabled"]),
         "max_turns": int(cfg.get("max_turns", _MAX_TURNS)),
@@ -376,6 +379,7 @@ def run_cell(cfg: dict, cell: dict, runs_dir: Path, brief_text: str, force: bool
             base_rate=cell["base_rate"],
             seed=cell["seed"],
             readme_variant=cfg.get("readme_variant", "none"),
+            log_history=cfg.get("log_history", "none"),
             out=task_dir,
             meta_path=run_dir / "meta.json",
         )
@@ -447,13 +451,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true", help="rerun cells that already finished")
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    parser.add_argument("--models", nargs="+", metavar="NAME",
+                        help="run only these models[].name entries; their cells are the same as in the full config")
+    parser.add_argument("--arms", nargs="+", metavar="NAME", help="run only these arms[].name entries")
     args = parser.parse_args(argv)
     if args.concurrency < 1:
         print("concurrency must be >= 1", file=sys.stderr)
         return 2
 
     load_env()
-    arms = arm_configs(yaml.safe_load(args.config.read_text(encoding="utf-8")))
+    cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    if args.models:
+        unknown = set(args.models) - {model["name"] for model in cfg["models"]}
+        if unknown:
+            print(f"--models names not in {args.config}: {sorted(unknown)}", file=sys.stderr)
+            return 2
+        cfg["models"] = [model for model in cfg["models"] if model["name"] in args.models]
+    arms = arm_configs(cfg)
+    if args.arms:
+        unknown = set(args.arms) - {arm["arm"] for arm in arms}
+        if unknown:
+            print(f"--arms names not in {args.config}: {sorted(unknown)}", file=sys.stderr)
+            return 2
+        arms = [arm for arm in arms if arm["arm"] in args.arms]
     try:
         for arm in arms:
             check_prefix_files(arm)
