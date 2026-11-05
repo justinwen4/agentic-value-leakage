@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.fit_curves import fit_lapse, fit_logistic, gap, gap_table, k50_table, load_runs, m50, population
+from analysis.fit_curves import (CANONICAL_BRIEF, config_cells, fit_lapse, fit_logistic, gap, gap_table, k50_table, load_runs, m50,
+                                  pilot_grid, population)
 from analysis.noise_baseline import at_midpoint, cell_k50s, matched_real_gaps, neutral_gaps, pooled_slope, threshold
 
 N = 1000
@@ -34,7 +35,7 @@ def simulate(log_k50s: dict[str, float], *, rng, n_per_m: int = 50, slope: float
                 p = lapse[0] + (1 - lapse[0] - lapse[1]) * p
                 rows.append({"model": "fake", "entity": entity, "direction": direction, "m": m,
                              "base_rate": base_rate, "seed": i if base_rate == "A" else 100 + i, "k": k,
-                             "brief": "brief_00", "prefill": "default:17", "action": "",
+                             "brief": CANONICAL_BRIEF, "prefill": "default:17", "action": "",
                              "public": bool(rng.random() < p), "check_passed": True, "leaked": False})
     frame = pd.DataFrame(rows)
     frame["action"] = np.where(frame["public"], "Public", "Quiet")
@@ -162,7 +163,61 @@ def test_m50_and_pilot_grid():
     runs = pd.concat([simulate({"neutral": LOG_K50}, rng=rng, direction=d) for d in ("inflated", "understated")])
     result = m50(runs)
     assert 24 < result["m50"] < 37
-    assert result["grid"] == sorted({round(result["m50"] * f) for f in (0.25, 0.5, 1, 2, 4)})
+    assert result["r"] == 2
+    assert result["grid"] == [round(result["m50"] * f) for f in (0.25, 0.5, 1, 2, 4)]
+
+
+def test_pilot_grid_shrinks_r_outside_8_to_37():
+    # Inside [8, 37]: the preregistered {1/4, 1/2, 1, 2, 4} grid (Opus rung1, m50 = 19.3).
+    assert pilot_grid(19.3) == (2.0, [5, 10, 19, 39, 77])
+    for value in (8, 37.5):
+        assert pilot_grid(value)[0] == 2.0
+    # Above: the top point sits at S = 150.
+    r, grid = pilot_grid(50)
+    assert round(r, 2) == 1.73 and grid == [17, 29, 50, 87, 150]
+    # Below: the bottom point sits at m = 2.
+    r, grid = pilot_grid(5)
+    assert round(r, 2) == 1.58 and grid == [2, 3, 5, 8, 12]
+    # Equal spacing in log m, centred on m50, before rounding.
+    for value in (5, 19.3, 50):
+        r, _ = pilot_grid(value)
+        assert math.isclose(math.log(r), math.log(min(2, math.sqrt(150 / value), math.sqrt(value / 2))))
+    # r < sqrt(2) (m50 above 75 or below 4): no grid, the owner decides by hand.
+    assert pilot_grid(75)[1][-1] == 150 and pilot_grid(4)[1][0] == 2
+    for value in (76, 3.9):
+        with pytest.raises(ValueError, match="by hand"):
+            pilot_grid(value)
+
+
+def test_midpoint_fits_one_sweep_config_only():
+    rng = np.random.default_rng(7)
+    sweep = pd.concat([simulate({"ambervale": LOG_K50}, rng=rng, direction=d) for d in ("inflated", "understated")])
+    sweep = sweep.assign(readme_variant="none", log_history="none", arm=None)
+    always = sweep.assign(public=True, action="Public")
+    others = pd.concat([
+        always.assign(brief="brief_00"),  # the brief_00 sweep at the same cells
+        always.assign(arm="rung1"),  # a ladder arm on the same brief
+        always.assign(entity="anthropic"),  # the ceiling probe
+        always.assign(readme_variant="must_correct"),  # the positive control
+        always.assign(log_history="v031_notes"),
+        always.assign(prefill="none"),
+        always.assign(seed=always["seed"] + 50_000),  # seeds outside the config
+        always.assign(base_rate=always["base_rate"].map({"A": "B", "B": "A"})),  # A seed at base rate B
+        always.assign(model="other"),
+    ])
+    cfg = {"models": [{"name": "fake"}], "entities": ["ambervale"], "m": list(M_GRID), "base_rates": ["A", "B"],
+           "seeds": {"A": list(range(25)), "B": list(range(125, 150))}, "brief": CANONICAL_BRIEF,
+           "prefill": "default"}
+    cells = config_cells(pd.concat([sweep, others], ignore_index=True), cfg)
+    assert len(cells) == len(sweep)
+    assert m50(cells) == m50(sweep)
+    assert not m50(cells)["censored"]
+    with pytest.raises(ValueError, match="brief"):
+        m50(pd.concat([sweep, always.assign(brief="brief_00")]))
+    with pytest.raises(ValueError, match="model"):
+        m50(pd.concat([sweep, always.assign(model="other")]))
+    with pytest.raises(ValueError, match="arms"):
+        config_cells(sweep, {**cfg, "arms": [{"name": "x"}]})
 
 
 def test_neutral_gaps_and_threshold():
@@ -223,7 +278,7 @@ def test_cell_k50s_single_k_uses_the_pooled_slope():
         assert abs(by.loc[entity, "log_k50"] - value) < 0.2
     # Without the cut (--fit-cells) the pilot neutrals would get their own fit.
     assert set(cell_k50s(runs, slope=slope).set_index("entity").loc[["n0", "n1"], "method"]) == {"fit"}
-    with pytest.raises(ValueError, match="n2/brief_00/inflated"):
+    with pytest.raises(ValueError, match=f"n2/{CANONICAL_BRIEF}/inflated"):
         at_midpoint(runs, true, 15)
     with pytest.raises(ValueError, match="n9"):
         at_midpoint(runs, [*true, "n9"], 30)

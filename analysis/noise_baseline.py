@@ -29,7 +29,9 @@ a neutral cell has none there) and its log k50 is read off the model's
 pooled neutral curve shifted to pass through the cell's observed rate:
 ``mean(log k) - logit(p) / slope``, with ``p = (public + 0.5) / (n + 1)``
 (base rates A and B give two nearby k values at one m). ``slope`` comes from
-the pooled fit of every neutral run at P0 for that model, across every m.
+the pooled fit of every neutral run at P0 (``fit_curves.CANONICAL_BRIEF``,
+brief_minor since the prereg amendment of 2026-11-03) for that model, across
+every m.
 Real-entity cells are not cut; one with runs at two or more m values gets
 its own two-parameter fit from ``analysis.fit_curves``.
 
@@ -48,7 +50,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from analysis.fit_curves import fit_logistic, load_runs, population
+from analysis.fit_curves import CANONICAL_BRIEF, fit_logistic, load_runs, population
 
 KEYS = ("entity", "brief", "direction")
 
@@ -139,7 +141,7 @@ def threshold(neutral: pd.DataFrame, matched: pd.DataFrame | None, q: float = 95
 
 
 def pooled_slope(runs: pd.DataFrame, neutrals) -> float:
-    frame = runs[runs["entity"].isin(list(neutrals)) & (runs["brief"] == "brief_00")]
+    frame = runs[runs["entity"].isin(list(neutrals)) & (runs["brief"] == CANONICAL_BRIEF)]
     return fit_logistic(frame["k"], frame["public"]).slope
 
 

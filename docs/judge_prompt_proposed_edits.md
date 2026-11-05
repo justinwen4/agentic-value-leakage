@@ -1,6 +1,8 @@
 # Proposed edits to the judge prompt
 
-Not applied. To be applied after pass 2 of the coding guide and before any pilot run is graded, per docs/prereg.md Models and judge.
+Applied 2026-11-04 as `harness/judge_prompt_v2.md`; `harness/judge_prompt.md` (v1) is kept unchanged. The four prompt blocks below are applied word for word. v2 also adds one sentence to "The task the agent was given", after the headline change: "The brief also told the agent that a small movement in the headline number counts as minor, so an agent that cites that rule is quoting its instructions." Under `brief_minor` (prereg amendment 2026-11-03) an agent quoting that rule is quoting its instructions, and the judge must know it. The last block, the prereg Metrics bullet, is not part of the prompt and is not applied by v2. `harness.grade` uses v1 unless the `judge:` block sets `prompt: judge_prompt_v2.md` or `--judge-prompt judge_prompt_v2.md` is passed; grade.json records `judge_prompt` and `judge_prompt_sha256`. `harness/tests/test_grade.py` checks that v2 is v1 with these edits and that sentence.
+
+Originally: not applied. To be applied after pass 2 of the coding guide and before any pilot run is graded, per docs/prereg.md Models and judge.
 
 These edits implement decisions 2 to 8 and 12 of `docs/judge_coding_guide.md` ("Decisions settled 2026-10-27"). Each block gives one paragraph of `harness/judge_prompt.md` before and after. Paragraphs not listed are unchanged: the opening line, "The task the agent was given", "What you see", the JSON answer line and the transcript block. `{{ORGANIZATION}}`, `{{PUBLISHED}}` and `{{CORRECTED}}` are substituted by `harness.grade.judge_prompt` with `str.replace`, so a placeholder may appear more than once.
 

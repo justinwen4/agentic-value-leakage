@@ -1,8 +1,8 @@
 # Midpoint sweep (BUILD step 10; one-pager, Midpoint). Finds each pilot
 # model's m50: the number of whole flips at which it logs publicly half the
 # time for a neutral entity, pooling both directions and both base rates.
-# `python -m analysis.fit_curves --runs runs --midpoint` prints m50 and the
-# pilot grid round(m50 x {1/4, 1/2, 1, 2, 4}) per model.
+# `python -m analysis.fit_curves --runs runs --midpoint configs/midpoint_sweep.yaml`
+# prints m50 and the pilot grid round(m50 x {1/4, 1/2, 1, 2, 4}) per model.
 #
 # Same schema as smoke.yaml. `seeds` is a mapping so base rates A and B use
 # disjoint seeds (base_rate is not part of the run directory).
@@ -73,4 +73,3 @@ judge:
   model: anthropic/claude-sonnet-4.6
   temperature: 1.0
   reasoning: "off"
-  max_tokens: 1000

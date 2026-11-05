@@ -1,6 +1,6 @@
 """S-curves of P(Public) against log k, and the liked-minus-disliked k50 shift.
 
-    python -m analysis.fit_curves --runs runs [--roles roles.yaml] [--bootstrap 2000] [--midpoint]
+    python -m analysis.fit_curves --runs runs [--roles roles.yaml] [--bootstrap 2000] [--midpoint CONFIG]
 
 Inputs are ``grade.json`` plus ``meta.json`` under ``--runs``; k is
 ``meta.k_achieved``, never the nominal m. Per docs/prereg.md (Analysis plan):
@@ -27,9 +27,13 @@ Inputs are ``grade.json`` plus ``meta.json`` under ``--runs``; k is
   resamples with any clipping is reported, and ``ci_reportable`` is true
   when that share is under 5%.
 
-``--midpoint`` also fits each model's neutral curve in log m pooling both
-directions and base rates (the midpoint sweep) and prints m50 with the
-pilot grid ``round(m50 x {1/4, 1/2, 1, 2, 4})``.
+``--midpoint CONFIG`` also fits each model's neutral curve in log m pooling
+both directions and base rates, on that sweep config's cells only
+(``config_cells``), and prints m50 with the pilot grid
+``round(m50 x {1/r^2, 1/r, 1, r, r^2})``, r = min(2, sqrt(150 / m50),
+sqrt(m50 / 2)) (``pilot_grid``; prereg amendment 2026-11-03, decided
+2026-11-04). Inside m50 in [8, 37], r = 2: the preregistered
+{1/4, 1/2, 1, 2, 4} grid.
 """
 from __future__ import annotations
 
@@ -45,7 +49,10 @@ import pandas as pd
 import yaml
 from scipy.optimize import minimize
 
-GRID_FACTORS = (0.25, 0.5, 1.0, 2.0, 4.0)
+# Pilot grid: five points at m50 x r^{-2..2}, inside [GRID_MIN_M, SHARD_S].
+GRID_MIN_M, SHARD_S = 2, 150
+# The pilot brief (prereg amendment 2026-11-03: brief_minor replaces brief_00).
+CANONICAL_BRIEF = "brief_minor"
 _SLOPE_CAP = 100.0
 _MAX_CLIPPED_SHARE = 0.05
 _OFF_CURVE = ("Incomplete", "Ask")
@@ -317,7 +324,7 @@ def gap_table(runs: pd.DataFrame, roles: dict, *, fit: str = "logistic", n_boot:
     for model, lines in roles.items():
         for line, spec in lines.items():
             for direction in sorted(runs["direction"].unique()):
-                frame = runs[(runs["model"] == model) & (runs["direction"] == direction) & (runs["brief"] == "brief_00")]
+                frame = runs[(runs["model"] == model) & (runs["direction"] == direction) & (runs["brief"] == CANONICAL_BRIEF)]
                 if frame.empty:
                     continue
                 result = gap(frame, spec["liked"], spec["disliked"], fit=fit, n_boot=n_boot)
@@ -328,12 +335,86 @@ def gap_table(runs: pd.DataFrame, roles: dict, *, fit: str = "logistic", n_boot:
 # -------------------------------------------------------------------- midpoint
 
 
+# Columns a midpoint fit must not pool over: one config's cells share each value.
+_ONE_CELL_KIND = ("entity", "brief", "arm", "prefill", "readme_variant", "log_history")
+
+
+def config_cells(runs: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """Runs that are cells of an arm-less run config (a midpoint sweep).
+
+    Matches models, entities, m, (base rate, seed) pairs, brief, prefill,
+    README variant and log history, and no arm, so another config's runs at
+    the same m (the brief_00 sweep, the ladder, the ceiling probe) never
+    pool in.
+    """
+    if cfg.get("arms"):
+        raise ValueError("config_cells takes a config without arms")
+    seeds = cfg["seeds"]
+    if isinstance(seeds, dict):
+        pairs = {(str(rate), int(s)) for rate, group in seeds.items() for s in group}
+    else:
+        pairs = {(str(rate), int(s)) for rate in cfg["base_rates"] for s in seeds}
+    prefill = "none" if cfg.get("prefill") in (None, "none") else "default"
+    keep = (
+        runs["model"].isin([m["name"] for m in cfg["models"]])
+        & runs["entity"].isin(cfg["entities"]) & runs["m"].isin([int(m) for m in cfg["m"]])
+        & pd.Series([(r, s) in pairs for r, s in zip(runs["base_rate"], runs["seed"])], index=runs.index, dtype=bool)
+        & (runs["brief"] == cfg["brief"]) & runs["prefill"].str.startswith(prefill)
+        & (runs["readme_variant"] == cfg.get("readme_variant", "none"))
+        & (runs["log_history"] == cfg.get("log_history", "none"))
+        & runs["arm"].isna()
+    )
+    return runs[keep]
+
+
 def m50(runs: pd.DataFrame) -> dict:
-    """Neutral midpoint in whole flips, pooling directions and base rates."""
+    """Neutral midpoint in whole flips, pooling directions and base rates.
+
+    ``runs`` is one model's cells of one sweep (``config_cells``); a frame
+    that mixes entities, briefs, arms, prefill, README variants or log
+    histories is refused rather than pooled.
+    """
+    mixed = [key for key in _ONE_CELL_KIND if key in runs and runs[key].nunique(dropna=False) > 1]
+    if mixed or ("model" in runs and runs["model"].nunique() > 1):
+        raise ValueError(f"m50 pools one model's cells of one sweep; these vary: {mixed or ['model']}")
     curve = fit_logistic(runs["m"].astype(float), runs["public"])
     value = math.exp(curve.log_k50) if not curve.censored else None
-    grid = sorted({max(1, round(value * f)) for f in GRID_FACTORS}) if value else None
-    return {"m50": value, "censored": curve.censored, "slope": curve.slope, "n": curve.n, "grid": grid}
+    r, grid = None, None
+    if value:
+        r = math.sqrt(_grid_r2(value))
+        try:
+            grid = pilot_grid(value)[1]
+        except ValueError:
+            pass
+    return {"m50": value, "censored": curve.censored, "slope": curve.slope, "n": curve.n, "r": r, "grid": grid}
+
+
+def _grid_r2(m50: float) -> float:
+    return min(4.0, SHARD_S / m50, m50 / GRID_MIN_M)
+
+
+def pilot_grid(m50: float) -> tuple[float, list[int]]:
+    """(r, round(m50 x {1/r^2, 1/r, 1, r, r^2})), r = min(2, sqrt(150 / m50), sqrt(m50 / 2)).
+
+    For m50 in [8, 37], r = 2. Outside it the spacing shrinks symmetrically,
+    so the points stay equally spaced in log m around m50, with the outer
+    point at 150 (above) or 2 (below). r below sqrt(2) (m50 above 75 or
+    below 4) raises: the owner sets that grid by hand. r^2 is computed
+    directly, not as sqrt(.)^2, so the outer points land exactly on the
+    boundary before rounding.
+    """
+    r2 = _grid_r2(m50)
+    if r2 < 2.0:
+        raise ValueError(f"m50 = {m50:.3g} gives r = {math.sqrt(r2):.3g} < sqrt(2): no pilot grid, the owner decides by hand")
+    r = math.sqrt(r2)
+    return r, [round(m50 / r2), round(m50 / r), round(m50), round(m50 * r), round(m50 * r2)]
+
+
+def _midpoint_line(result: dict) -> str:
+    if result["censored"]:
+        return f"censored {result['censored']} (n {result['n']})"
+    grid = result["grid"] or "none: r < sqrt(2), the owner decides by hand"
+    return f"m50 = {result['m50']:.1f}, r = {result['r']:.3g}, grid {grid} (slope {result['slope']:.2f}, n {result['n']})"
 
 
 # ------------------------------------------------------------------------- cli
@@ -345,7 +426,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--roles", type=Path, help="YAML {model: {line: {liked: [...], disliked: [...]}}}")
     parser.add_argument("--population", choices=("primary", "all"), default="primary")
     parser.add_argument("--bootstrap", type=int, default=2000)
-    parser.add_argument("--midpoint", action="store_true", help="print m50 and the pilot grid per model")
+    parser.add_argument("--midpoint", type=Path, metavar="CONFIG",
+                        help="print m50 and the pilot grid per model, from this sweep config's cells only")
     parser.add_argument("--out", type=Path, help="directory for k50.csv and gaps.csv")
     args = parser.parse_args(argv)
 
@@ -360,8 +442,11 @@ def main(argv: list[str] | None = None) -> int:
     with pd.option_context("display.width", 200, "display.max_columns", 20):
         print(k50s.to_string(index=False))
     if args.midpoint:
-        for model, frame in pop.groupby("model"):
-            print(f"midpoint {model}: {m50(frame)}")
+        sweep = yaml.safe_load(args.midpoint.read_text(encoding="utf-8"))
+        cells = config_cells(pop, sweep)
+        for model in [m["name"] for m in sweep["models"]]:
+            frame = cells[cells["model"] == model]
+            print(f"midpoint {model} ({args.midpoint.name}): {_midpoint_line(m50(frame)) if len(frame) else 'no runs'}")
     gaps = None
     if args.roles:
         roles = yaml.safe_load(args.roles.read_text(encoding="utf-8"))

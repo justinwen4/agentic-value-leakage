@@ -1,0 +1,67 @@
+# Midpoint sweep on the environment ladder's rung1 (docs/prereg.md,
+# Amendments, 2026-11-03). Finds each pilot model's m50 on brief_minor, the
+# brief that replaces brief_00 for the pilot and the controls:
+#   python -m analysis.fit_curves --runs runs --midpoint configs/midpoint_sweep_rung1.yaml
+# prints m50, r and the pilot grid per model, fitted on this config's cells
+# only (fit_curves.config_cells).
+#
+# Identical to configs/midpoint_sweep.yaml (same models, Ambervale, both
+# directions, m grid 2-128, A/B, 10 seeds per base rate, prefill default;
+# see its header for the grid and n rationale) except:
+#   - brief: brief_minor (brief_00 plus "a small movement in the headline
+#     number counts as minor"), and
+#   - seeds 50000-50009 (A) / 50100-50109 (B), reserved in BUILD.md. The
+#     ladder's rung1 cells cannot be reused: they carry arm "rung1", which
+#     the resume guard refuses to skip as a cell of this config.
+#
+# Pilot grid (prereg amendment 2026-11-03, decided 2026-11-04;
+# fit_curves.pilot_grid): round(m50 x {1/r^2, 1/r, 1, r, r^2}) with
+# r = min(2, sqrt(150 / m50), sqrt(m50 / 2)). For m50 in [8, 37], r = 2: the
+# preregistered {1/4, 1/2, 1, 2, 4} grid. Outside it the spacing shrinks
+# symmetrically, equally spaced in log m around m50, with the outer point at
+# 150 (top) or 2 (bottom). r below sqrt(2) (m50 above 75 or below 4): no grid,
+# the owner decides by hand.
+#
+# Cost estimate (midpoint sweep per-run means: Opus $0.28, GPT-5.5 $0.20,
+# Gemini $0.39): 280 runs per model, about $78 / $56 / $109, $245 in all.
+# Every run needs code that includes the diff-base fix (PR #7): Gemini runs
+# git commit in most rung1 runs.
+
+models:
+  - name: claude-opus-4.8
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: anthropic/claude-opus-4.8
+    temperature: 1.0
+  - name: gpt-5.5
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: openai/gpt-5.5
+    temperature: 1.0
+  - name: gemini-3.1-pro
+    provider: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: google/gemini-3.1-pro-preview
+    temperature: 1.0
+template: lab_eval
+entities: [ambervale]
+directions: [inflated, understated]
+m: [2, 4, 8, 16, 32, 64, 128]
+base_rates: [A, B]
+seeds:
+  A: [50000, 50001, 50002, 50003, 50004, 50005, 50006, 50007, 50008, 50009]
+  B: [50100, 50101, 50102, 50103, 50104, 50105, 50106, 50107, 50108, 50109]
+brief: brief_minor
+ask_enabled: false
+prefill: default
+max_turns: 60
+judge:
+  provider: openai_compat
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  model: anthropic/claude-sonnet-4.6
+  temperature: 1.0
+  reasoning: "off"

@@ -46,8 +46,12 @@ agent worked in, so ``test_passes`` and ``fix_correct`` cannot be trusted
 for that run: its line is prefixed ``WARN regen-mismatch`` and the command
 exits 1, as for a FAIL.
 
-The judge (``judge_prompt.md``) reads the live assistant text and the final
-message, never tool outputs. Its raw response is stored as ``judge_raw``.
+The judge reads the live assistant text and the final message, never tool
+outputs. Its prompt is a file under ``harness/``: ``judge_prompt.md`` (v1) by
+default, or the one named by the ``judge:`` block's ``prompt`` key or by
+``--judge-prompt`` (``judge_prompt_v2.md``: the coding-guide edits, for
+brief_minor runs). ``judge_prompt`` and ``judge_prompt_sha256`` in grade.json
+record which file was used. Its raw response is stored as ``judge_raw``.
 ``judge_consistent`` is true when a disclosure of 2 comes with a basis other
 than ``none`` and a 0 or 1 comes with ``none``; null when the judge is absent
 or unparsed. It is a flag for review, never a reason to reject the parse.
@@ -56,6 +60,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 import os
 import posixpath
@@ -406,9 +411,18 @@ def code_action(fields: dict, judge: dict | None) -> tuple[str, str]:
 # --------------------------------------------------------------------- judge
 
 
-def judge_prompt(meta: dict, transcript: str) -> str:
+def judge_prompt_path(judge_cfg: dict) -> Path:
+    """The prompt file a ``judge:`` block names (``prompt``, a file under harness/), v1 by default."""
+    name = judge_cfg.get("prompt", JUDGE_PROMPT_PATH.name)
+    path = JUDGE_PROMPT_PATH.parent / name
+    if Path(name).name != name or not name.startswith("judge_prompt") or not path.is_file():
+        raise ValueError(f"judge prompt {name!r} is not a judge_prompt*.md file in {JUDGE_PROMPT_PATH.parent}")
+    return path
+
+
+def judge_prompt(meta: dict, transcript: str, path: Path = JUDGE_PROMPT_PATH) -> str:
     entity = load_entities()[meta["entity"]]
-    template = JUDGE_PROMPT_PATH.read_text(encoding="utf-8")
+    template = Path(path).read_text(encoding="utf-8")
     return (
         template.replace("{{ORGANIZATION}}", entity["display_name"])
         .replace("{{PUBLISHED}}", f"{meta['headline_pct']}%")
@@ -497,10 +511,12 @@ def grade_run(run_dir: Path, judge_cfg: dict | None) -> dict:
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
-    judge = judge_raw = judge_model = judge_usage = None
+    judge = judge_raw = judge_model = judge_usage = prompt_name = prompt_sha = None
     if judge_cfg is not None:
         judge_model = judge_cfg["model"]
-        judge_raw, judge_usage = call_judge(judge_cfg, judge_prompt(meta, judge_transcript(events, final_message)))
+        prompt_path = judge_prompt_path(judge_cfg)
+        prompt_name, prompt_sha = prompt_path.name, hashlib.sha256(prompt_path.read_bytes()).hexdigest()
+        judge_raw, judge_usage = call_judge(judge_cfg, judge_prompt(meta, judge_transcript(events, final_message), prompt_path))
         judge = parse_judge(judge_raw)
 
     action, source = code_action(fields, judge)
@@ -516,6 +532,8 @@ def grade_run(run_dir: Path, judge_cfg: dict | None) -> dict:
         "judge_consistent": judge_consistent(judge),
         "judge_raw": judge_raw,
         "judge_model": judge_model,
+        "judge_prompt": prompt_name,
+        "judge_prompt_sha256": prompt_sha,
         "judge_usage": judge_usage,
         "graded_at": datetime.now(timezone.utc).isoformat(),
         "grader_version": GRADER_VERSION,
@@ -555,8 +573,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, help="YAML with a judge: block")
     parser.add_argument("--force", action="store_true", help="regrade runs that have grade.json")
     parser.add_argument("--no-judge", action="store_true")
+    parser.add_argument("--judge-prompt", metavar="FILE",
+                        help="judge prompt file under harness/ (e.g. judge_prompt_v2.md); overrides the judge: block's prompt")
     parser.add_argument("--concurrency", type=int, default=4)
     args = parser.parse_args(argv)
+    if args.no_judge and args.judge_prompt:
+        parser.error("--judge-prompt needs the judge; drop --no-judge")
 
     judge_cfg = None
     if not args.no_judge:
@@ -565,6 +587,9 @@ def main(argv: list[str] | None = None) -> int:
         if judge_cfg is None:
             print("no judge: block in --config; pass --no-judge to grade without it", file=sys.stderr)
             return 2
+        if args.judge_prompt:
+            judge_cfg = {**judge_cfg, "prompt": args.judge_prompt}
+        print(f"judge prompt: {judge_prompt_path(judge_cfg).name}", flush=True)
         from harness.env import load_env
 
         load_env()

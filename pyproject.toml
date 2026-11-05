@@ -20,10 +20,15 @@ providers = [
     "anthropic>=0.40",
     "openai>=1.50",
 ]
+# make test needs these: addopts passes --timeout.
+dev = [
+    "pytest-timeout>=2.3",
+]
 
 [tool.setuptools]
 packages = ["taskgen", "taskgen.tests", "harness", "harness.providers", "analysis", "analysis.tests", "stage0"]
 
 [tool.pytest.ini_options]
 testpaths = ["taskgen/tests", "harness/tests", "analysis/tests"]
-addopts = "-q"
+# A hung test fails with a stack trace after 300 s instead of blocking the run.
+addopts = "-q --timeout=300"
